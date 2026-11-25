@@ -1,13 +1,15 @@
 # Azzurro Hotels — Booking.com Review Insights
 
 Collects public Booking.com guest reviews for four Azzurro Hotels properties and turns them into a
-dashboard that non-technical operations staff can use to answer three questions every week:
+dashboard that non-technical operations staff can use to answer four questions every week:
 
 1. **How are we doing?** Average guest score this week vs last week, portfolio and per hotel.
 2. **What is going wrong (and right)?** Reviews grouped into operational topics — cleanliness,
    check-in, staff, noise, facilities, location, room condition, value, comfort, Wi-Fi — split into
    complaints and praise, with the exact sentences behind every number.
 3. **What exactly did guests say?** A filterable review feed (hotel, dates, rating band, topic, text search).
+4. **What should we do about it?** Ask a question in plain English ("How can we improve our rating?")
+   and get practical recommendations backed by real guest quotes.
 
 | Property (ops name) | Booking.com page |
 |---|---|
@@ -15,6 +17,17 @@ dashboard that non-technical operations staff can use to answer three questions 
 | Potts Point | `hotel/au/venus-potts-point-sydney` |
 | Central Sydney | `hotel/au/venus-surry-hills` |
 | Darling Harbour | `hotel/au/chateau-de-venus` |
+
+## Current status (25 Nov 2026)
+
+| | |
+|---|---|
+| Reviews collected | **9,263** — complete for all four hotels across Booking's 3-year window (Darling Harbour 4,304 · Central Sydney 2,445 · Potts Point 2,385 · Olympic Paddington 129) |
+| Collection | Playwright + Booking's own review feed, DOM fallback; daily incremental runs with gap detection |
+| Topic tagging | Keyword rules for every review; AI tagging (Groq free tier, Gemini fallback) for the 424 most recent reviews (Feb–Nov 2026), older ones fill in daily |
+| Dashboard | Overview · Issues & praise · Read reviews · Ask — light/dark, mobile |
+| Tests | 28 unit tests (`pnpm --filter api test`), lint + type checks clean |
+| Not done yet | Online deployment; failure alerts; live check of the scraper from a cloud server |
 
 ---
 
@@ -56,6 +69,9 @@ pnpm scrape -- --full                     # first load: full review history (~25
 
 pnpm dev:api                              # API  → http://localhost:4000/health
 pnpm dev:web                              # Dashboard → http://localhost:3000
+
+# Optional AI (free tiers): add LLM_API_KEY (Groq) and/or GOOGLE_GEMINI_AI_KEY to .env, then
+pnpm classify -- --ai --limit 20          # tag a few reviews; the Ask page works once a key is set
 ```
 
 No data handy? Load the bundled sample instead of scraping — see [Sample data](#sample-data).
@@ -74,7 +90,9 @@ No data handy? Load the bundled sample instead of scraping — see [Sample data]
 | `ADMIN_TOKEN` | — | Required for `POST /collector/run`. Unset = endpoint disabled |
 | `LLM_API_KEY` | — | Turns on AI tagging (see [AI tagging](#ai-tagging-optional-free-tier)). Empty = keyword rules only |
 | `LLM_BASE_URL` / `LLM_MODEL` | Groq / `openai/gpt-oss-120b` | Any OpenAI-compatible endpoint and model |
-| `LLM_BATCH_SIZE` / `LLM_TOKENS_PER_MINUTE` / `LLM_MAX_REVIEWS_PER_RUN` | `8` / `6000` / `500` | Free-tier pacing |
+| `LLM_BATCH_SIZE` / `LLM_TOKENS_PER_MINUTE` / `LLM_MAX_REVIEWS_PER_RUN` | `8` / `6000` / `300` | Free-tier pacing (300/day leaves about half the quota for Ask) |
+| `LLM_MAX_OUTPUT_TOKENS` / `LLM_EXTRA_BODY` | `4096` / `{"reasoning_effort":"low"}` | Output cap (Groq counts it against TPM) and provider extras |
+| `ASK_RATE_LIMIT_PER_HOUR` | `20` | Questions per client per hour on the Ask page |
 | `GOOGLE_GEMINI_AI_KEY` / `LLM_FALLBACK_MODEL` | — / `gemini-3.5-flash,gemini-flash-lite-latest` | Fallback provider chain (any OpenAI-compatible endpoint via `LLM_FALLBACK_BASE_URL`) |
 | `API_URL` (web) | `http://localhost:4000` | Where the dashboard's server components reach the API |
 
@@ -89,6 +107,7 @@ pnpm scrape -- --property olympic-paddington  # one hotel (repeatable flag)
 pnpm scrape -- --strategy dom                 # force the fallback strategy (testing)
 pnpm classify                                 # (re)tag topics for untagged reviews
 pnpm classify -- --all                        # re-tag everything after editing the taxonomy
+pnpm classify -- --ai                         # AI tagging, newest first, within the free daily quota
 ```
 
 The CLI prints a per-hotel summary table and exits non-zero if any hotel failed, so it can be used
@@ -101,7 +120,7 @@ curl -X POST localhost:4000/collector/run -H "x-admin-token: $ADMIN_TOKEN" \
 curl localhost:4000/collector/status          # last run + freshness per hotel
 ```
 
-Topic classification runs automatically after every collection.
+Topic classification (keywords, then AI when a key is set) runs automatically after every collection.
 
 ---
 
@@ -110,15 +129,16 @@ Topic classification runs automatically after every collection.
 ```
 ┌──────────────────────────┐  GET JSON   ┌──────────────────────────────────────┐
 │ apps/web  (Next.js 16)   │ ──────────▶ │ apps/api  (NestJS 12)                │
-│ Server Components fetch  │             │  metrics · insights · reviews ·      │
+│ Server Components fetch  │  POST /ask  │  metrics · insights · reviews · ask  │
 │ URL-driven filters       │             │  properties · collector · classifier │
-│ Recharts (client)        │             │  cron (Australia/Sydney)             │
-└──────────────────────────┘             └───────────────┬──────────────────────┘
-                                                         │ Prisma 7 (pg adapter)
-               ┌───────────────────────┐                 ▼
- Booking.com ◀─│ Playwright Chromium   │         ┌────────────────┐
-   (public     │ GraphQL ▸ DOM fallback│ ──────▶ │ PostgreSQL     │
-    pages)     └───────────────────────┘         └────────────────┘
+│ Recharts (client)        │             │  llm (provider chain) · cron (Sydney)│
+└──────────────────────────┘             └──────┬────────────────┬──────────────┘
+                                                │ Prisma 7       │ OpenAI-compatible
+               ┌───────────────────────┐        ▼                ▼ chat API
+ Booking.com ◀─│ Playwright Chromium   │  ┌────────────┐   ┌──────────────────────┐
+   (public     │ GraphQL ▸ DOM fallback│─▶│ PostgreSQL │   │ Groq (free) ▸ Gemini │
+    pages)     └───────────────────────┘  └────────────┘   │ (free) fallback chain│
+                                                           └──────────────────────┘
 ```
 
 pnpm monorepo:
@@ -128,11 +148,14 @@ apps/
   api/              NestJS API + collector + classifier + CLIs
     src/collector/  booking-session.ts, strategies/{graphql,dom}.strategy.ts,
                     review.normalizer.ts, collector.service.ts, scheduler, controller
-    src/classifier/ keyword.classifier.ts (+ tests), classifier.service.ts
+    src/classifier/ keyword.classifier.ts, llm.classifier.ts (prompt, schema, validation),
+                    classifier.service.ts, ai-classifier.service.ts (+ tests)
+    src/llm/        llm.client.ts (OpenAI-compatible), llm.service.ts (provider chain, retries)
+    src/ask/        ask.logic.ts (review selection, prompt, answer checks), ask.service.ts (+ tests)
     src/metrics/    weekly KPIs & trends (SQL, Sydney week boundaries)
     src/insights/   topic shares, period comparison, generated headlines
     src/reviews/    paginated, filterable feed
-    src/cli/        scrape.ts, classify.ts
+    src/cli/        scrape.ts, classify.ts (--ai)
   web/              Next.js App Router dashboard
 packages/
   db/               Prisma schema, migrations, seed, client factory
@@ -157,9 +180,10 @@ data/sample/        sample review export (JSON + CSV)
 |---|---|
 | `Property` | The 4 hotels; Booking hotel id discovered on first run |
 | `Review` | One row per Booking review. Unique `(propertyId, externalId)`; `contentHash`; raw payload |
-| `ReviewTopic` | Topic × polarity tags with the matched sentence as evidence; versioned |
+| `ReviewTopic` | Topic × polarity tags with the matched sentence as evidence; method `KEYWORD` or `LLM`; versioned |
 | `PropertySnapshot` | Booking's headline score, listable review count and category sub-scores per run |
 | `ScrapeRun` | Audit log of every collection: status, strategy, pages, new/updated counts, errors |
+| `AskLog` | Every "Ask" question and validated answer; also the per-day cache and the history list |
 
 ---
 
@@ -362,7 +386,7 @@ automatically.
 
 ## Dashboard
 
-Three pages, each with a single row of filters (hotels, period) that persist in the URL:
+Four pages, each with a single row of filters (hotels, period) that persist in the URL:
 
 - **Overview** — this week (week to date) vs last week: average rating, number of reviews, % negative,
   hotel reply rate; generated insight sentences; top complaints (each bar links to the reviews);
@@ -450,7 +474,8 @@ GitHub Actions job against the hosted database.
 
 `data/sample/` contains every review collected for the four hotels (Booking's 3-year window):
 
-- `reviews.json` — all fields used by the app (for re-import); topic tags included for reference.
+- `reviews.json` — all fields used by the app (for re-import), plus topic tags, which method tagged
+  each review (`taggedBy`: `keywords` or the AI model) and the AI's urgent flag/reason.
 - `reviews.csv` — the same, flattened for Excel / Google Sheets.
 
 Raw Booking payloads and reviewer avatar URLs are not included.

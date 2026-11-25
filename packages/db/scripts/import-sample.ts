@@ -46,6 +46,8 @@ for (let i = 0; i < rows.length; i += 1000) {
     propertyResponse: r.propertyResponse,
     helpfulVotes: r.helpfulVotes ?? 0,
     source: r.source ?? "graphql",
+    urgent: r.urgent ?? false,
+    urgentReason: r.urgentReason ?? null,
     raw: {},
   }));
   created += (await prisma.review.createMany({ data: batch, skipDuplicates: true })).count;

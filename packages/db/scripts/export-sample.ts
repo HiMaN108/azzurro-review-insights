@@ -37,11 +37,14 @@ const rows = reviews.map((r) => ({
   propertyResponse: r.propertyResponse,
   helpfulVotes: r.helpfulVotes,
   source: r.source,
+  taggedBy: r.classifierVersion?.startsWith("llm") ? r.classifierVersion.split(":").slice(1).join(":") : "keywords",
+  urgent: r.urgent,
+  urgentReason: r.urgentReason,
   topics: r.topics.map((t) => `${t.topic}:${t.polarity}`),
 }));
 
 fs.writeFileSync(path.join(out, "reviews.json"), JSON.stringify(rows));
-const cols = ["property", "propertyName", "externalId", "reviewedAt", "score", "sentiment", "title", "positiveText", "negativeText", "language", "reviewerName", "reviewerCountry", "travellerType", "roomType", "nights", "checkinDate", "propertyResponse", "topics"] as const;
+const cols = ["property", "propertyName", "externalId", "reviewedAt", "score", "sentiment", "title", "positiveText", "negativeText", "language", "reviewerName", "reviewerCountry", "travellerType", "roomType", "nights", "checkinDate", "propertyResponse", "taggedBy", "urgent", "urgentReason", "topics"] as const;
 const esc = (v: unknown) => {
   const s = Array.isArray(v) ? v.join("|") : v === null || v === undefined ? "" : String(v);
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
