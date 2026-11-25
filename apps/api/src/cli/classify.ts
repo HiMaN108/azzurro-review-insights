@@ -4,6 +4,7 @@
  *   pnpm classify --all         re-tag everything with keywords (after editing the taxonomy)
  *   pnpm classify --ai          AI tags, newest first, within the free-tier budget (needs LLM_API_KEY)
  *   pnpm classify --ai --limit 50
+ *   pnpm classify --ai --recheck-urgent   re-run AI on reviews currently flagged urgent (after changing the criteria)
  */
 import 'reflect-metadata';
 import { Module } from '@nestjs/common';
@@ -20,7 +21,7 @@ import { PrismaModule } from '../prisma/prisma.module.js';
 @Module({ imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: [path.resolve(process.cwd(), '../../.env'), '.env'] }), PrismaModule, LlmModule, ClassifierModule] })
 class ClassifyCliModule {}
 
-const { values } = parseArgs({ options: { all: { type: 'boolean', default: false }, ai: { type: 'boolean', default: false }, limit: { type: 'string' } } });
+const { values } = parseArgs({ options: { all: { type: 'boolean', default: false }, ai: { type: 'boolean', default: false }, limit: { type: 'string' }, 'recheck-urgent': { type: 'boolean', default: false } } });
 const app = await NestFactory.createApplicationContext(ClassifyCliModule, { logger: ['log', 'warn', 'error'] });
 try {
   const res = await app.get(ClassifierService).classifyPending({ reclassifyAll: values.all });
@@ -31,7 +32,11 @@ try {
       console.error('AI classification is off: set LLM_API_KEY in .env (see README → AI tagging).');
       process.exitCode = 1;
     } else {
-      const s = await ai.run({ limit: values.limit ? Number(values.limit) : undefined });
+      if (values['recheck-urgent']) {
+        const n = await ai.requeueUrgent();
+        console.log(`Re-queued ${n} urgent reviews for re-checking`);
+      }
+      const s = await ai.run({ limit: values.limit ? Number(values.limit) : undefined, urgentFirst: values['recheck-urgent'] });
       console.log(`AI-tagged ${s.processed} reviews (${s.urgent} urgent), ${s.remaining} pending, stopped: ${s.stoppedReason}`);
       if (s.stoppedReason === 'error') process.exitCode = 1;
     }

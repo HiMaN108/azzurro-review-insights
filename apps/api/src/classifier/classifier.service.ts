@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { classifyKeywords, KEYWORD_CLASSIFIER_VERSION } from './keyword.classifier.js';
+import { applyUrgentSafetyNet } from './urgent.safety-net.js';
 
 const BATCH = 500;
 
@@ -51,6 +52,8 @@ export class ClassifierService {
       topics += rows.length;
     }
     if (reviews) this.log.log(`Classified ${reviews} reviews → ${topics} topic mentions`);
+    const flagged = await applyUrgentSafetyNet(db);
+    if (flagged) this.log.log(`Urgent safety net flagged ${flagged} reviews (pests / theft / broken locks)`);
     return { reviews, topics };
   }
 }

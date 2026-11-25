@@ -26,7 +26,8 @@ dashboard that non-technical operations staff can use to answer four questions e
 | Collection | Playwright + Booking's own review feed, DOM fallback; daily incremental runs with gap detection |
 | Topic tagging | Keyword rules for every review; AI tagging (Groq free tier, Gemini fallback) for the 424 most recent reviews (Feb–Nov 2026), older ones fill in daily |
 | Dashboard | Overview · Issues & praise · Read reviews · Ask — light/dark, mobile |
-| Tests | 28 unit tests (`pnpm --filter api test`), lint + type checks clean |
+| Urgent flags | 120 across 3 years (AI + multilingual keyword safety net), hand-reviewed |
+| Tests | 44 unit tests (`pnpm --filter api test`), lint + type checks clean |
 | Not done yet | Online deployment; failure alerts; live check of the scraper from a cloud server |
 
 ---
@@ -328,6 +329,16 @@ After that the daily collection runs it automatically on new reviews.
   short rate limits, and stops cleanly when the daily quota is exhausted — remaining reviews are
   done on the next run. Newest reviews first, so the current week is covered on day one; on Groq's
   free tier (~200K tokens/day) the full 3-year history backfills over roughly two to three weeks.
+- **Urgent flags = AI + keyword safety net.** The AI flags a specific incident a manager should act on
+  today (pests, theft, broken locks/security, fire/gas/electrical hazards, injury or illness caused by
+  the stay, harassment/discrimination, refund or legal threats) — not general dirtiness, mould,
+  smells, noise or rudeness. A hand-checked review of the first 55 flags found ~10 % wrong (e.g.
+  Spanish "un robo" = "a rip-off" read as theft) and ~20 % borderline (mostly mould), so the
+  criteria were tightened (`llm-2`). That over-corrected inconsistently across models/languages
+  (Spanish cockroach reviews dropped), so a **multilingual keyword safety net** (`urgent.rules.ts`:
+  pests, theft/break-ins, broken locks in ~10 languages, with negation and price-slang guards)
+  always adds those flags, whichever model ran. It also covers reviews the AI hasn't reached yet.
+  `pnpm classify -- --ai --recheck-urgent` re-checks existing flags after criteria changes.
 - **Fallback:** if the AI is off, failing or out of quota, keyword tags are used. Each review shows
   whether it was "AI-tagged" or "keyword-tagged"; Issues & praise shows the AI coverage for the period.
 - Edited reviews are re-queued for AI tagging automatically.
@@ -466,6 +477,9 @@ GitHub Actions job against the hosted database.
 - **Small weekly samples.** The four hotels receive ~25 reviews/week combined, so per-hotel weekly
   averages often rest on 1–4 reviews; the UI flags these and offers monthly trends.
 - **Reply rate lags** because hotels reply days after a review; recent weeks fill in over time.
+- **One guest, many reviews.** Booking lets a guest review each booking separately; one guest who
+  booked 11 beds left 11 identical 1/10 reviews (Potts Point, Oct 2024). They are distinct Booking
+  reviews and Booking counts them in its score, so they are kept (27 such reviews, 0.3 % of the data).
 - **Score-only reviews** (no text) count towards averages but cannot be topic-tagged.
 
 ---

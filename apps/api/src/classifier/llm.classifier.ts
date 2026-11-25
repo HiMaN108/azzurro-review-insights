@@ -1,6 +1,6 @@
 import { TOPIC_KEYS, TOPICS } from '@azzurro/shared';
 
-export const LLM_CLASSIFIER_VERSION = 'llm-1';
+export const LLM_CLASSIFIER_VERSION = 'llm-2'; // llm-2: stricter urgent criteria
 
 export interface LlmReviewInput {
   id: string; // database id
@@ -36,7 +36,10 @@ Rules:
 - polarity is NEGATIVE when the guest complains about the topic, POSITIVE when they praise it. Usually complaints are in "disliked" and praise in "liked", but judge the meaning (e.g. "liked: nothing, the room was filthy" is a NEGATIVE cleanliness mention).
 - evidence must be copied exactly from the review text (same words and language, at most 25 words). It is shown to staff as proof, so never paraphrase or translate it.
 - Only tag what the guest actually says. "Nothing", "N/A" or empty text means no topics. A topic can appear at most once per polarity.
-- urgent is true only for issues needing a manager today: safety or security risks, injury, pests (cockroaches, bed bugs, mice), theft, harassment or discrimination, serious health hazards, or explicit threats of legal action, chargebacks or refunds. Otherwise false.
+- urgent is true only when the guest describes a specific incident a manager should act on today:
+  pests (cockroaches, bed bugs, rats or mice); theft or missing belongings; broken locks, doors that don't secure, or other security failures; fire, gas or electrical hazards; injury or illness caused by the stay; harassment, abuse or discrimination; or an explicit refund, chargeback or legal threat.
+  NOT urgent on their own: general dirtiness, mould, bad smells, noise, worn or broken furniture, rude staff, overpricing — unless the guest says it made them ill or hurt them.
+  Watch for slang: "robo", "rip-off", "daylight robbery" or "steal" about the price is a value complaint, not theft. Small flies or a single insect in a positive review is not urgent.
 - urgent_reason: one short sentence in English when urgent is true, otherwise an empty string.
 - Return one result per review id, in the same order.`;
 

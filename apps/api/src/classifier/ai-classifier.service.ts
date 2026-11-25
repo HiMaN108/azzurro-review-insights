@@ -5,6 +5,7 @@ import { sleep } from '../collector/retry.js';
 import { buildUserMessage, LLM_CLASSIFIER_VERSION, parseResults, RESPONSE_SCHEMA, SYSTEM_PROMPT, type LlmReviewInput, type LlmReviewResult } from './llm.classifier.js';
 import { LlmError, LlmOutputError, LlmRateLimitError, type LlmConfig } from '../llm/llm.client.js';
 import { LlmService } from '../llm/llm.service.js';
+import { applyUrgentSafetyNet } from './urgent.safety-net.js';
 
 export interface AiRunSummary {
   enabled: boolean;
@@ -46,7 +47,13 @@ export class AiClassifierService {
     };
   }
 
-  async run({ limit }: { limit?: number } = {}): Promise<AiRunSummary> {
+  /** Put reviews currently flagged urgent back in the queue (e.g. after tightening the criteria). Keeps their tags until re-tagged. */
+  async requeueUrgent(): Promise<number> {
+    const res = await this.prisma.client.review.updateMany({ where: { urgent: true }, data: { aiCheckedAt: null } });
+    return res.count;
+  }
+
+  async run({ limit, urgentFirst = false }: { limit?: number; urgentFirst?: boolean } = {}): Promise<AiRunSummary> {
     const db = this.prisma.client;
     const providers = this.llmService.providers;
     const remainingNow = () => db.review.count({ where: this.pendingWhere() });
@@ -75,7 +82,8 @@ export class AiClassifierService {
         const batch = (
           await db.review.findMany({
             where: this.pendingWhere(),
-            orderBy: { reviewedAt: 'desc' }, // newest first: what ops staff look at
+            // newest first (what ops staff look at); re-checks of urgent flags go first when requested
+            orderBy: urgentFirst ? [{ urgent: 'desc' }, { reviewedAt: 'desc' }] : { reviewedAt: 'desc' },
             take: Math.min(batchSize, maxReviews - summary.processed),
             select: { id: true, title: true, positiveText: true, negativeText: true, score: true },
           })
@@ -147,6 +155,8 @@ export class AiClassifierService {
     } finally {
       this.running = false;
     }
+    // The AI may clear a flag the keyword safety net would set (models differ by language); re-apply it.
+    summary.urgent += await applyUrgentSafetyNet(db);
     summary.remaining = await remainingNow();
     this.log.log(`AI tagged ${summary.processed} reviews (${summary.urgent} urgent) using ${summary.models.join(' + ') || 'no model'}, ${summary.remaining} still pending [${summary.stoppedReason}]`);
     return summary;
