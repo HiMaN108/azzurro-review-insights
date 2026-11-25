@@ -93,7 +93,7 @@ export class InsightsService {
       WHERE t.polarity = 'NEGATIVE' AND ${whereSql(range, properties)}
       GROUP BY 1, 2`;
     const out = new Map<string, Record<string, number>>();
-    for (const r of rows) out.set(r.topic, { ...(out.get(r.topic) ?? {}), [r.slug]: num(r.n) });
+    for (const r of rows) out.set(r.topic, { ...out.get(r.topic), [r.slug]: num(r.n) });
     return out;
   }
 

@@ -3,6 +3,7 @@ import { Prisma } from '@azzurro/db';
 import { previousRange, todayInSydney, weekRange, type DateRange } from '@azzurro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LOCAL_TS, num, round, whereSql } from '../common/sql.js';
+import { pickSnapshot } from '../common/snapshot.js';
 
 /** Below this many reviews a weekly average is flagged as low-confidence in the UI. */
 export const MIN_RELIABLE_SAMPLE = 5;
@@ -55,7 +56,7 @@ export class MetricsService {
     const props = await this.prisma.client.property.findMany({
       where: properties?.length ? { slug: { in: properties } } : undefined,
       orderBy: { name: 'asc' },
-      select: { slug: true, name: true, snapshots: { orderBy: { capturedAt: 'desc' }, take: 1 } },
+      select: { slug: true, name: true, snapshots: { orderBy: { capturedAt: 'desc' }, take: 20 } },
     });
 
     const pick = (slug: string | null, period: AggRow['period']) => stats(rows.filter((r) => (slug === null || r.slug === slug) && r.period === period));
@@ -69,16 +70,13 @@ export class MetricsService {
       properties: props.map((p) => {
         const cur = pick(p.slug, 'current');
         const prev = pick(p.slug, 'previous');
-        const snap = p.snapshots[0];
         return {
           slug: p.slug,
           name: p.name,
           current: cur,
           previous: prev,
           change: change(cur, prev),
-          booking: snap
-            ? { overallScore: snap.overallScore === null ? null : Number(snap.overallScore), reviewCount: snap.reviewCount, subScores: snap.subScores, capturedAt: snap.capturedAt }
-            : null,
+          booking: pickSnapshot(p.snapshots),
         };
       }),
       lastCollectedAt: (await this.prisma.client.scrapeRun.aggregate({ where: { status: { in: ['SUCCESS', 'PARTIAL'] } }, _max: { finishedAt: true } }))._max.finishedAt,

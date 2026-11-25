@@ -38,6 +38,10 @@ export interface StrategyContext {
   onPage: (page: RawReview[]) => Promise<void>;
   /** Random polite delay between requests. */
   delay: () => Promise<void>;
+  /** Largest list size Booking has reported for this property (completeness check). */
+  expectedListSize?: number;
+  /** When true, a list well below expectedListSize throws IncompleteListError (→ retry with fresh session). */
+  strictListSize: boolean;
 }
 
 export interface StrategyResult {

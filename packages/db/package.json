@@ -17,7 +17,9 @@
     "seed": "tsx prisma/seed.ts",
     "studio": "prisma studio",
     "postinstall": "prisma generate",
-    "build": "prisma generate && tsc -p tsconfig.json"
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "export-sample": "tsx scripts/export-sample.ts",
+    "import-sample": "tsx scripts/import-sample.ts"
   },
   "types": "./dist/index.d.ts",
   "devDependencies": {

@@ -25,7 +25,6 @@
     "classify": "node dist/cli/classify.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.13.0",
     "@azzurro/db": "workspace:*",
     "@azzurro/shared": "workspace:*",
     "@nestjs/common": "^12.0.1",

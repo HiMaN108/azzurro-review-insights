@@ -34,6 +34,8 @@ export interface PropertyRunSummary {
 }
 
 const STALE_RUN_MS = 2 * 60 * 60 * 1000;
+/** Incremental runs re-read reviews this recent to catch late hotel replies / guest edits. */
+const REFRESH_DAYS = 14;
 
 /**
  * Content-hash matching is only valid when one side lacks a real Booking id (DOM fallback rows).
@@ -101,7 +103,14 @@ export class CollectorService {
       maxPages: opts.full
         ? Number(this.config.get('SCRAPE_MAX_PAGES_FULL') ?? 400)
         : Number(this.config.get('SCRAPE_MAX_PAGES_PER_PROPERTY') ?? 40),
-      isPageAlreadyKnown: (page) => (opts.full ? Promise.resolve(false) : this.allKnown(property.id, page)),
+      // Keep paging through the last REFRESH_DAYS even when reviews are known, so late hotel
+      // replies and guest edits are picked up; stop at the first fully-known page older than that.
+      isPageAlreadyKnown: async (page) => {
+        if (opts.full) return false;
+        const cutoff = Date.now() - REFRESH_DAYS * 86_400_000;
+        if (page.some((r) => r.reviewedAt.getTime() >= cutoff)) return false;
+        return this.allKnown(property.id, page);
+      },
       onPage: async (page) => {
         const r = await this.persistPage(property.id, page, strategy);
         counters.reviewsNew += r.created;
@@ -110,12 +119,17 @@ export class CollectorService {
         counters.pagesSaved++;
       },
       delay: () => this.delay(),
+      expectedListSize: await this.largestListSize(property.id),
+      strictListSize: true,
     };
+    const ATTEMPTS = 3;
 
     try {
-      // Whole-property retry handles bot challenges / network errors with a fresh browser context.
+      // Whole-property retry handles bot challenges / network errors / short list variants
+      // with a fresh browser context. The last attempt accepts a short list (flagged PARTIAL below).
       const result = await withRetry(
-        async () => {
+        async (attempt) => {
+          ctx.strictListSize = attempt < ATTEMPTS;
           const session = await BookingSession.open(browser, property.bookingUrl);
           try {
             if (strategy === 'graphql') {
@@ -133,7 +147,7 @@ export class CollectorService {
             await session.close();
           }
         },
-        { attempts: 3, baseMs: 5000, onRetry: (e, n) => this.log.warn(`${tag} attempt ${n} failed: ${errorMessage(e)}`) },
+        { attempts: ATTEMPTS, baseMs: 5000, onRetry: (e, n) => this.log.warn(`${tag} attempt ${n} failed: ${errorMessage(e)}`) },
       );
 
       const warning = await this.checkListSize(property.id, result.meta.reviewCount);
@@ -193,7 +207,7 @@ export class CollectorService {
 
     const existing = await db.review.findMany({
       where: { propertyId, OR: [{ externalId: { in: rows.map((r) => r.externalId) } }, { contentHash: { in: rows.map((r) => r.contentHash) } }] },
-      select: { id: true, externalId: true, contentHash: true },
+      select: { id: true, externalId: true, contentHash: true, propertyResponse: true, helpfulVotes: true },
     });
     const byId = new Map(existing.map((e) => [e.externalId, e]));
     const toCreate: typeof rows = [];
@@ -209,7 +223,9 @@ export class CollectorService {
       }
       const upgrade = match.externalId.startsWith('h:') && !row.externalId.startsWith('h:');
       const edited = match.contentHash !== row.contentHash;
-      if (upgrade || edited) {
+      // Reply/vote changes don't alter the guest's text, so topics are kept.
+      const metaChanged = source === 'graphql' && (match.propertyResponse !== row.propertyResponse || match.helpfulVotes !== row.helpfulVotes);
+      if (upgrade || edited || metaChanged) {
         // A DOM-sourced row must not overwrite richer GraphQL data.
         if (!upgrade && source === 'dom' && !match.externalId.startsWith('h:')) {
           unchangedIds.push(match.id);
@@ -237,12 +253,16 @@ export class CollectorService {
    */
   private async checkListSize(propertyId: string, reviewCount?: number): Promise<string | null> {
     if (reviewCount === undefined) return null;
-    const best = await this.prisma.client.propertySnapshot.aggregate({ where: { propertyId }, _max: { reviewCount: true } });
-    const max = best._max.reviewCount;
+    const max = await this.largestListSize(propertyId);
     if (max && reviewCount < max * 0.9) {
       return `Booking reported ${reviewCount} listable reviews, previously ${max}: list may be filtered, some reviews could be missing. Re-run later.`;
     }
     return null;
+  }
+
+  private async largestListSize(propertyId: string): Promise<number | undefined> {
+    const best = await this.prisma.client.propertySnapshot.aggregate({ where: { propertyId }, _max: { reviewCount: true } });
+    return best._max.reviewCount ?? undefined;
   }
 
   private async saveMeta(property: Property, result: StrategyResult) {

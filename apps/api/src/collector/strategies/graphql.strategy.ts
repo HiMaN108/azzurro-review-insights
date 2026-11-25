@@ -1,5 +1,5 @@
 import type { BookingSession, ReviewListTemplate } from '../booking-session.js';
-import { ContractChangedError } from '../collector.errors.js';
+import { ContractChangedError, IncompleteListError } from '../collector.errors.js';
 import type { PropertyMeta, RawReview, StrategyContext, StrategyResult } from '../collector.types.js';
 import { withRetry } from '../retry.js';
 
@@ -58,6 +58,9 @@ export async function collectViaGraphql(session: BookingSession, ctx: StrategyCo
     pages++;
 
     if (pages === 1) {
+      if (ctx.strictListSize && ctx.expectedListSize && list.reviewsCount !== undefined && list.reviewsCount < ctx.expectedListSize * 0.9) {
+        throw new IncompleteListError(`Booking listed ${list.reviewsCount} reviews, expected ~${ctx.expectedListSize}`);
+      }
       total = list.reviewsCount ?? Infinity;
       meta.reviewCount = list.reviewsCount;
       meta.subScores = Object.fromEntries((list.ratingScores ?? []).map((s) => [s.translation ?? s.name, round1(s.value)]));
