@@ -42,7 +42,9 @@ model Review {
   contentHash String   // Detects edits to an already-stored review
 
   reviewedAt      DateTime  // Date the review was published
-  stayMonth       DateTime? // Booking only exposes month/year of stay
+  stayMonth       DateTime? // First day of stay month (always available)
+  checkinDate     DateTime? @db.Date // Exact dates: GraphQL source only
+  checkoutDate    DateTime? @db.Date
   nights          Int?
   score           Decimal   @db.Decimal(3, 1) // Booking scale 1.0–10.0
   title           String?
@@ -53,13 +55,15 @@ model Review {
 
   reviewerName    String?
   reviewerCountry String?
+  reviewerCountryCode String?
   travellerType   String?   // Couple / Family / Solo traveller / Group / Business
   roomType        String?
   propertyResponse String?
   helpfulVotes    Int       @default(0)
 
   sentiment   Sentiment // Derived from score bands (see shared/sentiment.ts)
-  raw         Json
+  source      String    // "graphql" | "dom" — which collection strategy produced it
+  raw         Json      // Original payload minus avatar URLs
   firstSeenAt DateTime  @default(now())
   lastSeenAt  DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -67,6 +71,7 @@ model Review {
   topics ReviewTopic[]
 
   @@unique([propertyId, externalId])
+  @@index([propertyId, contentHash])
   @@index([propertyId, reviewedAt])
   @@index([reviewedAt])
   @@index([sentiment])
