@@ -1,6 +1,6 @@
 import { TOPICS, type TopicKey } from '@azzurro/shared';
 
-export const KEYWORD_CLASSIFIER_VERSION = 'kw-1';
+export const KEYWORD_CLASSIFIER_VERSION = 'kw-2';
 
 export interface TopicHit {
   topic: Exclude<TopicKey, 'OTHER'>;
@@ -12,8 +12,9 @@ export interface TopicHit {
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
- * Pre-compiled matchers. Terms match at a word start; single words also match common suffixes
- * ("clean" → "cleaned", "cleaning"), multi-word phrases tolerate hyphen/space variants.
+ * Pre-compiled matchers. Terms match whole words plus common English inflections only
+ * ("clean" → "cleaned", "cleaning", but "fee" ✗ "feels", "host" ✗ "hostel");
+ * multi-word phrases tolerate hyphen/space variants.
  */
 const MATCHERS = TOPICS.map((t) => ({
   key: t.key as TopicHit['topic'],
@@ -21,7 +22,7 @@ const MATCHERS = TOPICS.map((t) => ({
     `\\b(?:${t.keywords
       .map((k) => escape(k).replace(/\\-|\s+/g, '[\\s-]?'))
       .sort((a, b) => b.length - a.length)
-      .join('|')})\\w*`,
+      .join('|')})(?:s|es|d|ed|ing|y|ly|er|ers|ness)?\\b`,
     'i',
   ),
 }));

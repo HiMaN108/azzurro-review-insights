@@ -11,3 +11,4 @@ coverage/
 # scraper debug artefacts (screenshots/html dumps may contain session data)
 apps/api/.debug/
 packages/db/src/generated/
+*.tsbuildinfo

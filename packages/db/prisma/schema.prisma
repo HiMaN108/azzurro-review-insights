@@ -69,12 +69,15 @@ model Review {
   updatedAt   DateTime  @updatedAt
 
   topics ReviewTopic[]
+  classifiedAt      DateTime? // null = needs (re)classification
+  classifierVersion String?
 
   @@unique([propertyId, externalId])
   @@index([propertyId, contentHash])
   @@index([propertyId, reviewedAt])
   @@index([reviewedAt])
   @@index([sentiment])
+  @@index([classifiedAt])
 }
 
 enum Topic {

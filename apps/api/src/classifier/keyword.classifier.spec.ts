@@ -23,3 +23,9 @@ describe('classifyKeywords', () => {
     expect(hit.evidence).toBe('The shower was broken.');
   });
 });
+
+describe('classifyKeywords false-positive guards', () => {
+  it('does not match keywords inside unrelated words', () => {
+    expect(classifyKeywords(null, 'Everything feels new. The hostel has stairs.', null).map((h) => h.topic)).toEqual(['FACILITIES']);
+  });
+});

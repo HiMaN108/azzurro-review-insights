@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
+import { PropertiesController } from './properties.controller.js';
 
-/** GET /properties — the 4 hotels + latest Booking headline score & sub-scores. */
-@Module({ providers: [], controllers: [], exports: [] })
+/** GET /properties, GET /topics */
+@Module({ controllers: [PropertiesController] })
 export class PropertiesModule {}

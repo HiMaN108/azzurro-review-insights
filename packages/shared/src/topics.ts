@@ -27,7 +27,7 @@ export const TOPICS: TopicDef[] = [
   { key: "LOCATION", label: "Location", description: "Area, transport, proximity to attractions",
     keywords: ["location", "located", "close to", "walking distance", "station", "transport", "bus", "train", "area", "neighbourhood", "neighborhood", "central", "convenient", "stadium", "restaurants nearby"] },
   { key: "ROOM_CONDITION", label: "Room condition", description: "Maintenance, broken items, dated furniture, bathroom state",
-    keywords: ["broken", "old", "dated", "tired", "worn", "renovat", "maintenance", "leak", "leaking", "shower", "bathroom", "toilet", "plumbing", "door", "window", "carpet", "paint", "furniture", "small room", "tiny", "cramped", "aircon", "air con", "air conditioning", "heating", "hot water"] },
+    keywords: ["broken", "old", "dated", "tired", "worn", "renovation", "renovate", "renovated", "maintenance", "leak", "leaking", "shower", "bathroom", "toilet", "plumbing", "door", "window", "carpet", "paint", "furniture", "small room", "tiny", "cramped", "aircon", "air con", "air conditioning", "heating", "hot water"] },
   { key: "VALUE", label: "Value for money", description: "Price vs. quality, hidden fees, deposits",
     keywords: ["price", "value", "expensive", "overpriced", "cheap", "worth", "money", "cost", "fee", "fees", "charge", "charged", "deposit", "refund", "budget", "affordable"] },
   { key: "COMFORT", label: "Bed & comfort", description: "Bed, pillows, linen, temperature",

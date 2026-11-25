@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { chromium, type Browser } from 'playwright';
 import type { Property } from '@azzurro/db';
+import { ClassifierService } from '../classifier/classifier.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { BookingSession } from './booking-session.js';
 import { BlockedError, ContractChangedError, errorMessage } from './collector.errors.js';
@@ -52,6 +53,7 @@ export class CollectorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly classifier: ClassifierService,
   ) {}
 
   get isRunning() {
@@ -78,6 +80,7 @@ export class CollectorService {
         results.push(await this.collectProperty(browser, property, opts));
         if (i < properties.length - 1) await this.delay();
       }
+      await this.classifier.classifyPending().catch((e) => this.log.error(`Classification failed: ${errorMessage(e)}`));
     } finally {
       await browser.close().catch(() => {});
       this.running = false;
@@ -133,13 +136,16 @@ export class CollectorService {
         { attempts: 3, baseMs: 5000, onRetry: (e, n) => this.log.warn(`${tag} attempt ${n} failed: ${errorMessage(e)}`) },
       );
 
+      const warning = await this.checkListSize(property.id, result.meta.reviewCount);
       await this.saveMeta(property, result);
+      const status = warning ? 'PARTIAL' : 'SUCCESS';
       await db.scrapeRun.update({
         where: { id: run.id },
-        data: { status: 'SUCCESS', finishedAt: new Date(), pagesFetched: result.pagesFetched, reviewsSeen: result.reviewsSeen, reviewsNew: counters.reviewsNew, reviewsUpdated: counters.reviewsUpdated },
+        data: { status, finishedAt: new Date(), pagesFetched: result.pagesFetched, reviewsSeen: result.reviewsSeen, reviewsNew: counters.reviewsNew, reviewsUpdated: counters.reviewsUpdated, errorMessage: warning },
       });
+      if (warning) this.log.warn(`${tag} ${warning}`);
       this.log.log(`${tag} done: ${result.reviewsSeen} seen, ${counters.reviewsNew} new, ${counters.reviewsUpdated} updated, ${counters.rejected} rejected (${result.stoppedReason})`);
-      return { property: property.slug, status: 'SUCCESS', strategy, pagesFetched: result.pagesFetched, reviewsSeen: result.reviewsSeen, ...counters };
+      return { property: property.slug, status, strategy, pagesFetched: result.pagesFetched, reviewsSeen: result.reviewsSeen, ...counters, ...(warning ? { error: warning } : {}) };
     } catch (err) {
       // Pages saved before the failure are kept → PARTIAL rather than FAILED.
       const status = counters.pagesSaved > 0 ? 'PARTIAL' : 'FAILED';
@@ -210,7 +216,7 @@ export class CollectorService {
           continue;
         }
         await db.$transaction([
-          db.review.update({ where: { id: match.id }, data: { ...row, lastSeenAt: now } }),
+          db.review.update({ where: { id: match.id }, data: { ...row, lastSeenAt: now, ...(edited ? { classifiedAt: null } : {}) } }),
           ...(edited ? [db.reviewTopic.deleteMany({ where: { reviewId: match.id } })] : []),
         ]);
         updated++;
@@ -222,6 +228,21 @@ export class CollectorService {
     if (unchangedIds.length) await db.review.updateMany({ where: { id: { in: unchangedIds } }, data: { lastSeenAt: now } });
     const created = toCreate.length ? (await db.review.createMany({ data: toCreate, skipDuplicates: true })).count : 0;
     return { created, updated, rejected };
+  }
+
+  /**
+   * Completeness guard. Booking occasionally serves a ReviewList variant that silently returns a
+   * subset of reviews (observed: 74 instead of 129). A list size well below the largest we've seen
+   * means this run may have missed reviews, so it is flagged rather than reported as a clean success.
+   */
+  private async checkListSize(propertyId: string, reviewCount?: number): Promise<string | null> {
+    if (reviewCount === undefined) return null;
+    const best = await this.prisma.client.propertySnapshot.aggregate({ where: { propertyId }, _max: { reviewCount: true } });
+    const max = best._max.reviewCount;
+    if (max && reviewCount < max * 0.9) {
+      return `Booking reported ${reviewCount} listable reviews, previously ${max}: list may be filtered, some reviews could be missing. Re-run later.`;
+    }
+    return null;
   }
 
   private async saveMeta(property: Property, result: StrategyResult) {
