@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildUserMessage, parseResults, type LlmReviewInput } from './llm.classifier.js';
-import { chatJson, LlmError, LlmRateLimitError } from './llm.client.js';
+import { chatJson, LlmError, LlmOutputError, LlmRateLimitError } from './llm.client.js';
 
 const batch: LlmReviewInput[] = [
   { id: 'db-1', title: 'Never again', positiveText: 'Great location', negativeText: 'Cockroaches in the kitchen. Staff were rude.', score: 3 },
@@ -97,6 +97,20 @@ describe('chatJson', () => {
     await expect(chatJson(cfg, 's', 'u', {})).rejects.toThrow(/truncated/);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('no', { status: 401 })));
     await expect(chatJson(cfg, 's', 'u', {})).rejects.toBeInstanceOf(LlmError);
+  });
+
+  it('treats truncation and json_validate_failed as output errors (→ batch is split and retried)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"error":{"code":"json_validate_failed","failed_generation":""}}', { status: 400 })));
+    await expect(chatJson(cfg, 's', 'u', {})).rejects.toBeInstanceOf(LlmOutputError);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: '{"res' }, finish_reason: 'length' }] }))));
+    await expect(chatJson(cfg, 's', 'u', {})).rejects.toBeInstanceOf(LlmOutputError);
+  });
+
+  it('sends the output cap', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: '{}' }, finish_reason: 'stop' }] })));
+    vi.stubGlobal('fetch', fetchMock);
+    await chatJson({ ...cfg, maxTokens: 4096 }, 's', 'u', {});
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(4096);
   });
 
   it('exports the error classes', () => {

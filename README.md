@@ -286,6 +286,11 @@ After that the daily collection runs it automatically on new reviews.
   validated again in code — unknown ids/topics/polarities are dropped.
 - **No invented quotes:** each evidence quote must appear verbatim in the review; otherwise it is
   discarded and the tag's confidence lowered.
+- **Self-healing batches:** reasoning models can run out of output room on a large batch
+  (observed on the first live run: truncated / `json_validate_failed`). A failed batch is split in
+  half and retried (8 → 4 → 2 → 1); a review that still fails alone keeps its keyword tags and leaves
+  the queue, so it can't block the rest. `reasoning_effort: "low"` (via `LLM_EXTRA_BODY`) keeps
+  replies short, and `LLM_MAX_OUTPUT_TOKENS` is sized so input + cap stays under Groq's 8K TPM.
 - **Budget pacing:** paces requests by tokens actually used (`LLM_TOKENS_PER_MINUTE`), retries
   short rate limits, and stops cleanly when the daily quota is exhausted — remaining reviews are
   done on the next run. Newest reviews first, so the current week is covered on day one; on Groq's
@@ -294,8 +299,8 @@ After that the daily collection runs it automatically on new reviews.
   whether it was "AI-tagged" or "keyword-tagged"; Issues & praise shows the AI coverage for the period.
 - Edited reviews are re-queued for AI tagging automatically.
 - Unit tests cover prompt building, output validation, quote verification and HTTP error handling
-  (no network needed). The pipeline was verified end-to-end against a local mock server; it has
-  not yet been run against a live provider key.
+  (no network needed). Verified live on Groq (`openai/gpt-oss-120b`): tags and urgent flags were
+  spot-checked by hand, including French and Danish reviews that keyword rules miss.
 
 Note: free tiers may use prompts to improve the provider's models (Google's Gemini free tier says so
 explicitly). Reviews are public data, so this is acceptable here; use a paid tier for private data.

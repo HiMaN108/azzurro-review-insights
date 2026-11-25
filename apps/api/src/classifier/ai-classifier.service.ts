@@ -2,14 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { sleep } from '../collector/retry.js';
-import { buildUserMessage, LLM_CLASSIFIER_VERSION, parseResults, RESPONSE_SCHEMA, SYSTEM_PROMPT, type LlmReviewInput } from './llm.classifier.js';
-import { chatJson, LlmError, LlmRateLimitError, type LlmConfig } from './llm.client.js';
+import { buildUserMessage, LLM_CLASSIFIER_VERSION, parseResults, RESPONSE_SCHEMA, SYSTEM_PROMPT, type LlmReviewInput, type LlmReviewResult } from './llm.classifier.js';
+import { chatJson, LlmError, LlmOutputError, LlmRateLimitError, type LlmConfig } from './llm.client.js';
 
 export interface AiRunSummary {
   enabled: boolean;
   processed: number;
   urgent: number;
   failedBatches: number;
+  skipped: number;
   stoppedReason: 'done' | 'run-limit' | 'daily-quota' | 'error' | 'disabled';
   remaining: number;
 }
@@ -49,6 +50,8 @@ export class AiClassifierService {
       apiKey,
       baseUrl: this.config.get<string>('LLM_BASE_URL') || 'https://api.groq.com/openai/v1',
       model: this.config.get<string>('LLM_MODEL') || 'openai/gpt-oss-120b',
+      // Groq counts the requested output cap against tokens-per-minute, so keep input + cap < 8K.
+      maxTokens: Number(this.config.get('LLM_MAX_OUTPUT_TOKENS') ?? 4096),
       extraBody,
     };
   }
@@ -68,7 +71,7 @@ export class AiClassifierService {
     const db = this.prisma.client;
     const llm = this.llm;
     const remainingNow = () => db.review.count({ where: this.pendingWhere() });
-    if (!llm) return { enabled: false, processed: 0, urgent: 0, failedBatches: 0, stoppedReason: 'disabled', remaining: await remainingNow() };
+    if (!llm) return { enabled: false, processed: 0, urgent: 0, failedBatches: 0, skipped: 0, stoppedReason: 'disabled', remaining: await remainingNow() };
     if (this.running) throw new Error('AI classification already running');
     this.running = true;
 
@@ -76,7 +79,7 @@ export class AiClassifierService {
     const maxReviews = limit ?? Number(this.config.get('LLM_MAX_REVIEWS_PER_RUN') ?? 500);
     const tpm = Math.max(1000, Number(this.config.get('LLM_TOKENS_PER_MINUTE') ?? 6000)); // stay under free 8K TPM
     const version = `${LLM_CLASSIFIER_VERSION}:${llm.model}`;
-    const summary: AiRunSummary = { enabled: true, processed: 0, urgent: 0, failedBatches: 0, stoppedReason: 'done', remaining: 0 };
+    const summary: AiRunSummary = { enabled: true, processed: 0, urgent: 0, failedBatches: 0, skipped: 0, stoppedReason: 'done', remaining: 0 };
     let consecutiveFailures = 0;
 
     try {
@@ -91,9 +94,9 @@ export class AiClassifierService {
         ).map((r): LlmReviewInput => ({ ...r, score: Number(r.score) }));
         if (!batch.length) break;
 
-        let response;
+        let outcome: Awaited<ReturnType<AiClassifierService['classifyAdaptive']>>;
         try {
-          response = await this.callWithRetry(llm, batch);
+          outcome = await this.classifyAdaptive(llm, batch, tpm);
         } catch (err) {
           if (err instanceof LlmRateLimitError) {
             summary.stoppedReason = 'daily-quota';
@@ -115,17 +118,16 @@ export class AiClassifierService {
           continue;
         }
         consecutiveFailures = 0;
+        const { results, skipped } = outcome;
 
-        const { results, problems } = parseResults(response.data, batch);
-        if (problems.length) this.log.warn(`AI output issues: ${problems.slice(0, 3).join('; ')}${problems.length > 3 ? ` (+${problems.length - 3})` : ''}`);
-        if (!results.length) {
-          summary.failedBatches++;
-          if (++consecutiveFailures >= 3) {
-            summary.stoppedReason = 'error';
-            break;
-          }
-          continue; // reviews stay pending; retried next run
+        // Reviews the model can't handle even alone keep their keyword tags and leave the queue,
+        // so one odd review can never block the rest.
+        if (skipped.length) {
+          summary.skipped += skipped.length;
+          this.log.warn(`AI skipped ${skipped.length} review(s) it could not tag; keyword tags kept`);
+          await db.review.updateMany({ where: { id: { in: skipped } }, data: { aiCheckedAt: new Date() } });
         }
+        if (!results.length) continue;
 
         const now = new Date();
         const ids = results.map((r) => r.reviewId);
@@ -148,9 +150,6 @@ export class AiClassifierService {
         summary.processed += results.length;
         summary.urgent += results.filter((r) => r.urgent).length;
 
-        // Pace to the tokens-per-minute budget using the tokens this call actually consumed.
-        const used = response.totalTokens || 2500;
-        await sleep(Math.ceil((used / tpm) * 60_000));
       }
       if (summary.stoppedReason === 'done' && summary.processed >= maxReviews) summary.stoppedReason = 'run-limit';
     } finally {
@@ -159,6 +158,37 @@ export class AiClassifierService {
     summary.remaining = await remainingNow();
     this.log.log(`AI tagged ${summary.processed} reviews (${summary.urgent} urgent), ${summary.remaining} still pending [${summary.stoppedReason}]`);
     return summary;
+  }
+
+  /**
+   * Tag a batch; if the model's output is cut off or invalid, split the batch in half and retry
+   * (8 → 4 → 2 → 1). Reviews the model omits are retried on their own. Paces every call to the
+   * tokens-per-minute budget using the tokens it actually consumed.
+   */
+  private async classifyAdaptive(llm: LlmConfig, batch: LlmReviewInput[], tpm: number): Promise<{ results: LlmReviewResult[]; skipped: string[] }> {
+    let response;
+    try {
+      response = await this.callWithRetry(llm, batch);
+    } catch (err) {
+      if (!(err instanceof LlmOutputError)) throw err;
+      await sleep(Math.ceil((2000 / tpm) * 60_000)); // failed calls still use quota
+      if (batch.length === 1) return { results: [], skipped: [batch[0].id] };
+      this.log.warn(`${err.message} — retrying as smaller batches (${batch.length} → ${Math.ceil(batch.length / 2)})`);
+      const mid = Math.ceil(batch.length / 2);
+      const a = await this.classifyAdaptive(llm, batch.slice(0, mid), tpm);
+      const b = await this.classifyAdaptive(llm, batch.slice(mid), tpm);
+      return { results: [...a.results, ...b.results], skipped: [...a.skipped, ...b.skipped] };
+    }
+    await sleep(Math.ceil(((response.totalTokens || 2500) / tpm) * 60_000));
+
+    const { results, problems } = parseResults(response.data, batch);
+    if (problems.length) this.log.warn(`AI output issues: ${problems.slice(0, 3).join('; ')}${problems.length > 3 ? ` (+${problems.length - 3})` : ''}`);
+    const done = new Set(results.map((r) => r.reviewId));
+    const missing = batch.filter((r) => !done.has(r.id));
+    if (!missing.length) return { results, skipped: [] };
+    if (batch.length === 1) return { results, skipped: missing.map((r) => r.id) };
+    const retry = await this.classifyAdaptive(llm, missing, tpm);
+    return { results: [...results, ...retry.results], skipped: retry.skipped };
   }
 
   private async callWithRetry(llm: LlmConfig, batch: LlmReviewInput[]) {
