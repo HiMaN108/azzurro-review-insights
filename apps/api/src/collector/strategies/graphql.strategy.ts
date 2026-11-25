@@ -62,6 +62,7 @@ export async function collectViaGraphql(session: BookingSession, ctx: StrategyCo
         throw new IncompleteListError(`Booking listed ${list.reviewsCount} reviews, expected ~${ctx.expectedListSize}`);
       }
       total = list.reviewsCount ?? Infinity;
+      if (list.reviewsCount !== undefined) ctx.onListSize?.(list.reviewsCount);
       meta.reviewCount = list.reviewsCount;
       meta.subScores = Object.fromEntries((list.ratingScores ?? []).map((s) => [s.translation ?? s.name, round1(s.value)]));
     }

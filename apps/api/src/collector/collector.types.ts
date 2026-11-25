@@ -42,6 +42,8 @@ export interface StrategyContext {
   expectedListSize?: number;
   /** When true, a list well below expectedListSize throws IncompleteListError (→ retry with fresh session). */
   strictListSize: boolean;
+  /** Reported once per run with Booking's listable review count (lets the service escalate to a full walk). */
+  onListSize?: (count: number) => void;
 }
 
 export interface StrategyResult {

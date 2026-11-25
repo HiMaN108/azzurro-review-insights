@@ -212,7 +212,7 @@ all already stored. A typical daily run fetches 1–3 pages per hotel in under a
 | Edited reviews | Content hash change → row updated and topics cleared for re-classification. |
 | Late hotel replies | 14-day refresh window; reply/vote changes update the row without touching topics. |
 | Invalid records | Rejected and counted: score outside 1–10, unparsable or future dates, dates before 2010. |
-| **Booking serving a partial list** | Observed during testing: the same hotel sometimes reports a smaller listable review count in a different browser session (Olympic: 129 vs 74; Darling Harbour: 4,304 vs 2,526). If the count drops > 10 % below the largest seen, the collector retries with a fresh session; if it persists, the run is marked `PARTIAL` with an explanatory message, and the dashboard ignores that snapshot's numbers. |
+| **Booking serving a partial list** | Observed during testing: some browser sessions get a list of only ~60 % of a hotel's reviews (Olympic 74 vs 129, Central Sydney 1,468 vs 2,445, Potts Point 1,438 vs 2,385, Darling Harbour 2,526 vs 4,304). Two defences: **(1)** if the list is > 10 % below the largest seen, retry with a fresh session; if it persists, mark the run `PARTIAL` and ignore that snapshot in the dashboard. **(2) Gap detection:** if Booking lists > 5 % more reviews than we store, the run automatically switches from incremental to a full walk and back-fills what earlier runs missed (recovered 473 Potts Point reviews in testing). |
 | Privacy | Reviewer avatar URLs (third-party profile links) are stripped before storage; only the first name/country Booking displays publicly is kept. No cookies or credentials are stored or committed. |
 | Time zones | All "week" logic uses Australia/Sydney, Monday–Sunday, DST-aware. |
 

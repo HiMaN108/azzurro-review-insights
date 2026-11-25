@@ -98,6 +98,8 @@ export class CollectorService {
     const run = await db.scrapeRun.create({ data: { propertyId: property.id, strategy } });
     this.log.log(`${tag} start (${opts.full ? 'full' : 'incremental'}, ${strategy})`);
 
+    let escalated = false;
+    const storedCount = await db.review.count({ where: { propertyId: property.id } });
     const ctx: StrategyContext = {
       // Incremental runs normally stop after 1–2 pages; the cap only bounds a pathological run.
       maxPages: opts.full
@@ -106,7 +108,7 @@ export class CollectorService {
       // Keep paging through the last REFRESH_DAYS even when reviews are known, so late hotel
       // replies and guest edits are picked up; stop at the first fully-known page older than that.
       isPageAlreadyKnown: async (page) => {
-        if (opts.full) return false;
+        if (opts.full || escalated) return false;
         const cutoff = Date.now() - REFRESH_DAYS * 86_400_000;
         if (page.some((r) => r.reviewedAt.getTime() >= cutoff)) return false;
         return this.allKnown(property.id, page);
@@ -121,6 +123,15 @@ export class CollectorService {
       delay: () => this.delay(),
       expectedListSize: await this.largestListSize(property.id),
       strictListSize: true,
+      // Gap detection: Booking sometimes serves a ~60 % subset of reviews per session, so an
+      // earlier run may have missed some. If Booking lists clearly more reviews than we store,
+      // walk the whole list now instead of stopping at the first known page.
+      onListSize: (count) => {
+        if (opts.full || escalated || count <= storedCount * 1.05) return;
+        escalated = true;
+        ctx.maxPages = Number(this.config.get('SCRAPE_MAX_PAGES_FULL') ?? 400);
+        this.log.warn(`${tag} Booking lists ${count} reviews but ${storedCount} are stored → switching to a full walk`);
+      },
     };
     const ATTEMPTS = 3;
 
