@@ -17,6 +17,11 @@ export class LlmError extends Error {
   readonly name: string = 'LlmError';
 }
 
+/** Provider temporarily overloaded or erroring (5xx, network) — retry after a pause. */
+export class LlmUnavailableError extends LlmError {
+  readonly name = 'LlmUnavailableError';
+}
+
 /** The model's output was cut off or not valid JSON — usually fixed by sending fewer reviews. */
 export class LlmOutputError extends LlmError {
   readonly name = 'LlmOutputError';
@@ -58,7 +63,7 @@ export async function chatJson(cfg: LlmConfig, system: string, user: string, sch
       signal: AbortSignal.timeout(cfg.timeoutMs ?? 120_000),
     });
   } catch (err) {
-    throw new LlmError(`Network error: ${(err as Error).message}`);
+    throw new LlmUnavailableError(`Network error: ${(err as Error).message}`);
   }
 
   if (res.status === 429) {
@@ -71,6 +76,8 @@ export async function chatJson(cfg: LlmConfig, system: string, user: string, sch
     const text = (await res.text().catch(() => '')).slice(0, 300);
     // Groq returns 400 json_validate_failed when the generation didn't match the schema (often truncated).
     if (res.status === 400 && /json_validate_failed|failed_generation/.test(text)) throw new LlmOutputError(`Invalid JSON from model: ${text.slice(0, 120)}`);
+    // e.g. Gemini free tier: 503 "experiencing high demand"
+    if (res.status >= 500) throw new LlmUnavailableError(`HTTP ${res.status}: ${text.replace(/\s+/g, ' ').slice(0, 160)}`);
     throw new LlmError(`HTTP ${res.status}: ${text}`);
   }
 

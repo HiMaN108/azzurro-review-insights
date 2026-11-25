@@ -74,6 +74,7 @@ No data handy? Load the bundled sample instead of scraping — see [Sample data]
 | `LLM_API_KEY` | — | Turns on AI tagging (see [AI tagging](#ai-tagging-optional-free-tier)). Empty = keyword rules only |
 | `LLM_BASE_URL` / `LLM_MODEL` | Groq / `openai/gpt-oss-120b` | Any OpenAI-compatible endpoint and model |
 | `LLM_BATCH_SIZE` / `LLM_TOKENS_PER_MINUTE` / `LLM_MAX_REVIEWS_PER_RUN` | `8` / `6000` / `500` | Free-tier pacing |
+| `GOOGLE_GEMINI_AI_KEY` / `LLM_FALLBACK_MODEL` | — / `gemini-3.5-flash,gemini-flash-lite-latest` | Fallback provider chain (any OpenAI-compatible endpoint via `LLM_FALLBACK_BASE_URL`) |
 | `API_URL` (web) | `http://localhost:4000` | Where the dashboard's server components reach the API |
 
 ---
@@ -286,6 +287,13 @@ After that the daily collection runs it automatically on new reviews.
   validated again in code — unknown ids/topics/polarities are dropped.
 - **No invented quotes:** each evidence quote must appear verbatim in the review; otherwise it is
   discarded and the tag's confidence lowered.
+- **Provider fallback:** if the primary (Groq) runs out of free quota, rejects the key or fails 3
+  times in a row, the run switches to the fallback chain — by default Google Gemini's
+  OpenAI-compatible endpoint (`GOOGLE_GEMINI_AI_KEY`), trying `gemini-3.5-flash` then
+  `gemini-flash-lite-latest`. (`gemini-3.8-flash` was tested first but was repeatedly overloaded —
+  HTTP 503 "high demand" — on the free tier.) Each review records which model tagged it.
+- **Temporary outages:** 5xx / network errors are retried after 5 s, 15 s and 45 s before counting
+  as a failure.
 - **Self-healing batches:** reasoning models can run out of output room on a large batch
   (observed on the first live run: truncated / `json_validate_failed`). A failed batch is split in
   half and retried (8 → 4 → 2 → 1); a review that still fails alone keeps its keyword tags and leaves

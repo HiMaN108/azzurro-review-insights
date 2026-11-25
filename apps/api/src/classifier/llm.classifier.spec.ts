@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildUserMessage, parseResults, type LlmReviewInput } from './llm.classifier.js';
-import { chatJson, LlmError, LlmOutputError, LlmRateLimitError } from './llm.client.js';
+import { chatJson, LlmError, LlmOutputError, LlmRateLimitError, LlmUnavailableError } from './llm.client.js';
 
 const batch: LlmReviewInput[] = [
   { id: 'db-1', title: 'Never again', positiveText: 'Great location', negativeText: 'Cockroaches in the kitchen. Staff were rude.', score: 3 },
@@ -104,6 +104,11 @@ describe('chatJson', () => {
     await expect(chatJson(cfg, 's', 'u', {})).rejects.toBeInstanceOf(LlmOutputError);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: '{"res' }, finish_reason: 'length' }] }))));
     await expect(chatJson(cfg, 's', 'u', {})).rejects.toBeInstanceOf(LlmOutputError);
+  });
+
+  it('treats 5xx overload as temporarily unavailable (retried with backoff)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"error":{"code":503,"message":"high demand"}}', { status: 503 })));
+    await expect(chatJson(cfg, 's', 'u', {})).rejects.toBeInstanceOf(LlmUnavailableError);
   });
 
   it('sends the output cap', async () => {
