@@ -13,10 +13,11 @@ import { parseArgs } from 'node:util';
 import { CollectorCoreModule } from '../collector/collector-core.module.js';
 import { CollectorService } from '../collector/collector.service.js';
 import type { StrategyName } from '../collector/collector.types.js';
+import { LlmModule } from '../llm/llm.module.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: [path.resolve(process.cwd(), '../../.env'), '.env'] }), PrismaModule, CollectorCoreModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: [path.resolve(process.cwd(), '../../.env'), '.env'] }), PrismaModule, LlmModule, CollectorCoreModule],
 })
 class ScrapeCliModule {}
 

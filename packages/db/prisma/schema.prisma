@@ -164,3 +164,20 @@ model ScrapeRun {
 
   @@index([propertyId, startedAt])
 }
+
+// "Ask the reviews": every question and answer. Doubles as a cache (same question + filters on
+// the same day reuses the stored answer) and as a history staff can reopen.
+model AskLog {
+  id         String   @id @default(cuid())
+  cacheKey   String   // sha1(normalised question + filters + Sydney date)
+  question   String
+  filters    Json     // { from, to, properties[] }
+  answer     Json     // validated answer: summary, recommendations with evidence, caveats
+  model      String
+  tokensUsed Int      @default(0)
+  reviewsUsed Int     @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([cacheKey])
+  @@index([createdAt])
+}

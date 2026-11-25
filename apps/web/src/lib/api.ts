@@ -121,7 +121,57 @@ export interface Property {
   booking: BookingSnapshot | null;
 }
 
+export interface AskEvidence {
+  ref: string;
+  reviewId: string;
+  hotel: string;
+  date: string;
+  score: number;
+  quote: string;
+}
+export interface AskResult {
+  id: string;
+  question: string;
+  filters: { from: string; to: string; properties: string[] };
+  answer: {
+    summary: string;
+    recommendations: { title: string; action: string; why: string; evidence: AskEvidence[] }[];
+    caveats: string;
+    insufficientData: boolean;
+    unverifiedFigures?: string[];
+  };
+  model: string;
+  reviewsUsed: number;
+  createdAt: string;
+  cached: boolean;
+}
+export interface AskHistoryItem {
+  id: string;
+  question: string;
+  filters: { from: string; to: string; properties: string[] };
+  createdAt: string;
+}
+
 const csv = (v?: string[]) => (v?.length ? v.join(",") : undefined);
+
+/** POST /ask — used by the server action. Errors carry the API's friendly message. */
+export async function postAsk(body: { question: string; from?: string; to?: string; properties?: string[] }): Promise<AskResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${API}/ask`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+      signal: AbortSignal.timeout(180_000),
+    });
+  } catch {
+    throw new ApiError("The reviews service is not reachable right now. Please try again in a minute.");
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(Array.isArray(json.message) ? json.message.join(", ") : (json.message ?? `Request failed (${res.status})`));
+  return json as AskResult;
+}
 
 export const api = {
   properties: () => get<Property[]>("/properties"),
@@ -130,4 +180,6 @@ export const api = {
     get<Trends>("/metrics/trends", { from: o.from, to: o.to, granularity: o.granularity, properties: csv(o.properties) }),
   insights: (o: { from?: string; to?: string; properties?: string[] }) => get<Insights>("/insights/topics", { from: o.from, to: o.to, properties: csv(o.properties) }),
   reviews: (o: Record<string, string | number | undefined>) => get<ReviewPage>("/reviews", o),
+  askResult: (id: string) => get<AskResult>(`/ask/${encodeURIComponent(id)}`),
+  askHistory: (limit = 8) => get<AskHistoryItem[]>("/ask/history", { limit }),
 };

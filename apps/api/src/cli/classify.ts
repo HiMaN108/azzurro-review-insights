@@ -14,9 +14,10 @@ import { parseArgs } from 'node:util';
 import { ClassifierModule } from '../classifier/classifier.module.js';
 import { AiClassifierService } from '../classifier/ai-classifier.service.js';
 import { ClassifierService } from '../classifier/classifier.service.js';
+import { LlmModule } from '../llm/llm.module.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 
-@Module({ imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: [path.resolve(process.cwd(), '../../.env'), '.env'] }), PrismaModule, ClassifierModule] })
+@Module({ imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: [path.resolve(process.cwd(), '../../.env'), '.env'] }), PrismaModule, LlmModule, ClassifierModule] })
 class ClassifyCliModule {}
 
 const { values } = parseArgs({ options: { all: { type: 'boolean', default: false }, ai: { type: 'boolean', default: false }, limit: { type: 'string' } } });

@@ -3,7 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { sleep } from '../collector/retry.js';
 import { buildUserMessage, LLM_CLASSIFIER_VERSION, parseResults, RESPONSE_SCHEMA, SYSTEM_PROMPT, type LlmReviewInput, type LlmReviewResult } from './llm.classifier.js';
-import { chatJson, LlmError, LlmOutputError, LlmRateLimitError, LlmUnavailableError, type LlmConfig } from './llm.client.js';
+import { LlmError, LlmOutputError, LlmRateLimitError, type LlmConfig } from '../llm/llm.client.js';
+import { LlmService } from '../llm/llm.service.js';
 
 export interface AiRunSummary {
   enabled: boolean;
@@ -16,8 +17,6 @@ export interface AiRunSummary {
   remaining: number;
 }
 
-/** A 429 asking us to wait longer than this means the daily quota is used up. */
-const DAILY_QUOTA_WAIT_MS = 120_000;
 
 /**
  * Optional AI tagging on top of the keyword classifier. Off unless LLM_API_KEY is set.
@@ -33,58 +32,11 @@ export class AiClassifierService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly llmService: LlmService,
   ) {}
 
-  private parseExtra(name: string): Record<string, unknown> | undefined {
-    const raw = this.config.get<string>(name)?.trim();
-    if (!raw) return undefined;
-    try {
-      return JSON.parse(raw);
-    } catch {
-      this.log.warn(`${name} is not valid JSON — ignored`);
-      return undefined;
-    }
-  }
-
-  /**
-   * Providers in priority order: primary (LLM_*), then fallback (LLM_FALLBACK_*; defaults to
-   * Google Gemini's OpenAI-compatible endpoint using GOOGLE_GEMINI_AI_KEY). Either may be absent.
-   */
-  get providers(): LlmConfig[] {
-    const maxTokens = Number(this.config.get('LLM_MAX_OUTPUT_TOKENS') ?? 4096); // Groq counts this against TPM
-    const list: LlmConfig[] = [];
-    const primaryKey = this.config.get<string>('LLM_API_KEY')?.trim();
-    if (primaryKey) {
-      list.push({
-        apiKey: primaryKey,
-        baseUrl: this.config.get<string>('LLM_BASE_URL') || 'https://api.groq.com/openai/v1',
-        model: this.config.get<string>('LLM_MODEL') || 'openai/gpt-oss-120b',
-        maxTokens,
-        extraBody: this.parseExtra('LLM_EXTRA_BODY'),
-      });
-    }
-    const fallbackKey = (this.config.get<string>('LLM_FALLBACK_API_KEY') || this.config.get<string>('GOOGLE_GEMINI_AI_KEY'))?.trim();
-    if (fallbackKey) {
-      // Comma-separated list = a chain: if one model is overloaded or out of quota, try the next.
-      const models = (this.config.get<string>('LLM_FALLBACK_MODEL') || 'gemini-3.5-flash,gemini-flash-lite-latest')
-        .split(',')
-        .map((m) => m.trim())
-        .filter(Boolean);
-      for (const model of models) {
-        list.push({
-          apiKey: fallbackKey,
-          baseUrl: this.config.get<string>('LLM_FALLBACK_BASE_URL') || 'https://generativelanguage.googleapis.com/v1beta/openai',
-          model,
-          maxTokens,
-          extraBody: this.parseExtra('LLM_FALLBACK_EXTRA_BODY') ?? { reasoning_effort: 'low' },
-        });
-      }
-    }
-    return list;
-  }
-
   get enabled() {
-    return this.providers.length > 0;
+    return this.llmService.enabled;
   }
 
   private pendingWhere() {
@@ -96,14 +48,14 @@ export class AiClassifierService {
 
   async run({ limit }: { limit?: number } = {}): Promise<AiRunSummary> {
     const db = this.prisma.client;
-    const providers = this.providers;
+    const providers = this.llmService.providers;
     const remainingNow = () => db.review.count({ where: this.pendingWhere() });
     if (!providers.length) return { enabled: false, processed: 0, urgent: 0, failedBatches: 0, skipped: 0, models: [], stoppedReason: 'disabled', remaining: await remainingNow() };
     if (this.running) throw new Error('AI classification already running');
     this.running = true;
 
     const batchSize = Math.max(1, Number(this.config.get('LLM_BATCH_SIZE') ?? 8));
-    const maxReviews = limit ?? Number(this.config.get('LLM_MAX_REVIEWS_PER_RUN') ?? 500);
+    const maxReviews = limit ?? Number(this.config.get('LLM_MAX_REVIEWS_PER_RUN') ?? 300);
     const tpm = Math.max(1000, Number(this.config.get('LLM_TOKENS_PER_MINUTE') ?? 6000)); // stay under free 8K TPM
     let active = 0;
     let llm = providers[active];
@@ -208,7 +160,7 @@ export class AiClassifierService {
   private async classifyAdaptive(llm: LlmConfig, batch: LlmReviewInput[], tpm: number): Promise<{ results: LlmReviewResult[]; skipped: string[] }> {
     let response;
     try {
-      response = await this.callWithRetry(llm, batch);
+      response = await this.llmService.callWithRetry(llm, SYSTEM_PROMPT, buildUserMessage(batch), RESPONSE_SCHEMA);
     } catch (err) {
       if (!(err instanceof LlmOutputError)) throw err;
       await sleep(Math.ceil((2000 / tpm) * 60_000)); // failed calls still use quota
@@ -229,26 +181,5 @@ export class AiClassifierService {
     if (batch.length === 1) return { results, skipped: missing.map((r) => r.id) };
     const retry = await this.classifyAdaptive(llm, missing, tpm);
     return { results: [...results, ...retry.results], skipped: retry.skipped };
-  }
-
-  private async callWithRetry(llm: LlmConfig, batch: LlmReviewInput[]) {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        return await chatJson(llm, SYSTEM_PROMPT, buildUserMessage(batch), RESPONSE_SCHEMA);
-      } catch (err) {
-        // Short waits = per-minute limit: wait and retry. Long waits = daily quota: give up for today.
-        if (err instanceof LlmRateLimitError && err.retryAfterMs <= DAILY_QUOTA_WAIT_MS && attempt < 4) {
-          await sleep(err.retryAfterMs + 1000);
-          continue;
-        }
-        // Temporary overload / server error: back off 5s, 15s, 45s before counting it as a failure.
-        if (err instanceof LlmUnavailableError && attempt < 4) {
-          this.log.warn(`${llm.model} unavailable (${err.message.slice(0, 80)}) — retrying in ${5 * 3 ** (attempt - 1)}s`);
-          await sleep(5000 * 3 ** (attempt - 1));
-          continue;
-        }
-        throw err;
-      }
-    }
   }
 }

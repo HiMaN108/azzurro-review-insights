@@ -6,6 +6,7 @@ const LINKS = [
   { href: "/", label: "Overview" },
   { href: "/insights", label: "Issues & praise" },
   { href: "/reviews", label: "Read reviews" },
+  { href: "/ask", label: "Ask" },
 ];
 
 /** Keeps the hotel filter when switching pages so staff don't have to re-select. */
@@ -14,7 +15,7 @@ export function NavLinks() {
   const sp = useSearchParams();
   const p = sp.get("p");
   return (
-    <nav aria-label="Main" className="flex gap-1 overflow-x-auto">
+    <nav aria-label="Main" className="flex flex-wrap gap-1">
       {LINKS.map((l) => {
         const active = l.href === "/" ? path === "/" : path.startsWith(l.href);
         return (

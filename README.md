@@ -27,6 +27,7 @@ dashboard that non-technical operations staff can use to answer three questions 
 - [Data quality controls](#data-quality-controls)
 - [How insights are produced](#how-insights-are-produced)
 - [AI tagging (optional, free tier)](#ai-tagging-optional-free-tier)
+- [Ask the reviews](#ask-the-reviews)
 - [Dashboard](#dashboard)
 - [API reference](#api-reference)
 - [Deployment](#deployment)
@@ -315,6 +316,50 @@ explicitly). Reviews are public data, so this is acceptable here; use a paid tie
 
 ---
 
+## Ask the reviews
+
+The **Ask** page lets staff type a question in plain English, e.g. *"How can we improve our rating
+at Darling Harbour?"* or *"What should housekeeping focus on this week?"*, and get 3–5 practical
+recommendations, each with the reason (numbers from the statistics) and the guest quotes behind it.
+
+**How an answer is built** (`apps/api/src/ask/`)
+
+1. **Statistics for all reviews** in the selected hotels/period (default: last 12 weeks): average
+   score vs previous period, % negative, complaint/praise share per topic and its change.
+2. **A relevant sample of reviews** (~20–35, capped at ~3K tokens so it fits free-tier per-minute
+   limits): questions naming a topic ("check-in", "dirty", "wifi") get reviews about that topic;
+   open questions get recent complaints about the biggest issues (round-robin so each is
+   represented) plus top-scored reviews to show what's working.
+3. **The AI writes the answer** as strict JSON (same provider chain as tagging: Groq → Gemini).
+4. **The answer is checked before it is shown:**
+   - cited reviews must be ones that were actually sent; the real review text is attached as the quote
+     (refs the model writes into its prose are recovered and removed from the text);
+   - every percentage must appear in the statistics. If one doesn't, the answer is shown with a
+     visible warning. Limitation: this catches invented figures, not a real figure attached to the
+     wrong claim;
+   - review text is treated as data ("ignore your instructions" in a review or question does nothing;
+     off-topic questions get a polite "unrelated to guest reviews").
+
+**Cost & limits:** one question ≈ 5–7K tokens on Groq's free tier. The same question + filters on
+the same day returns the saved answer instantly (no AI call). 20 questions per client per hour
+(`ASK_RATE_LIMIT_PER_HOUR`). Daily tagging is capped at 300 reviews (`LLM_MAX_REVIEWS_PER_RUN`) so
+roughly half the free daily quota stays available for questions. Every Q&A is stored (`AskLog`)
+and listed under "Recent questions".
+
+**Prompt lessons from testing:** the first version produced invented "score points" because the
+statistics said "+5 pts" (meaning percentage points of reviews); the wording was made explicit and a
+rule added that every number must come from the statistics. The model also wrote refs like "(R6)"
+inside its text instead of the evidence list, so quotes went missing; that is now recovered
+automatically.
+
+| Endpoint | Description |
+|---|---|
+| `POST /ask` `{question, from?, to?, properties?}` | Answer (cached per question + filters per day) |
+| `GET /ask/history?limit=` | Recent questions |
+| `GET /ask/:id` | A saved answer |
+
+---
+
 ## Dashboard
 
 Three pages, each with a single row of filters (hotels, period) that persist in the URL:
@@ -327,6 +372,7 @@ Three pages, each with a single row of filters (hotels, period) that persist in 
 - **Issues & praise** — any period: complaint and praise shares per topic, change vs previous period,
   breakdown by hotel, recent example quotes, and a plain-language explanation of the method and its
   limits.
+- **Ask** — natural-language questions answered from the reviews (see [Ask the reviews](#ask-the-reviews)).
 - **Read reviews** — the full feed with hotel, period, rating band, topic (complaint or praise),
   free-text search and sort; liked/disliked shown side by side, topic chips with the evidence on
   hover, hotel reply expandable.

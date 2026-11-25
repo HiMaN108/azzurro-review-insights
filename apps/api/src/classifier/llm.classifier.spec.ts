@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildUserMessage, parseResults, type LlmReviewInput } from './llm.classifier.js';
-import { chatJson, LlmError, LlmOutputError, LlmRateLimitError, LlmUnavailableError } from './llm.client.js';
+import { chatJson, LlmError, LlmOutputError, LlmRateLimitError, LlmUnavailableError } from '../llm/llm.client.js';
 
 const batch: LlmReviewInput[] = [
   { id: 'db-1', title: 'Never again', positiveText: 'Great location', negativeText: 'Cockroaches in the kitchen. Staff were rude.', score: 3 },
