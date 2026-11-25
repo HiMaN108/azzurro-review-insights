@@ -23,7 +23,8 @@
   },
   "types": "./dist/index.d.ts",
   "devDependencies": {
-    "prisma": "^7.10.1"
+    "prisma": "^7.10.1",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@azzurro/shared": "workspace:*",
