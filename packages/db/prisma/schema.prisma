@@ -1,0 +1,151 @@
+// Booking.com review store for Azzurro Hotels.
+// Design notes:
+// - Reviews are deduplicated by (propertyId, externalId). externalId is Booking's review id;
+//   when unavailable we fall back to a deterministic content hash (see collector).
+// - Raw payload is kept so we can re-parse if Booking changes field semantics.
+// - Topic tags are stored separately so classification can be re-run without re-scraping.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Property {
+  id             String   @id @default(cuid())
+  slug           String   @unique // Booking "pagename", e.g. olympic-paddington
+  name           String   // Display name used by ops staff
+  countryCode    String   @default("au")
+  bookingUrl     String
+  bookingHotelId Int?     // Discovered on first scrape
+  createdAt      DateTime @default(now())
+
+  reviews   Review[]
+  snapshots PropertySnapshot[]
+  runs      ScrapeRun[]
+}
+
+enum Sentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  externalId  String   // Booking review id, or "h:<sha1>" content-hash fallback
+  contentHash String   // Detects edits to an already-stored review
+
+  reviewedAt      DateTime  // Date the review was published
+  stayMonth       DateTime? // Booking only exposes month/year of stay
+  nights          Int?
+  score           Decimal   @db.Decimal(3, 1) // Booking scale 1.0–10.0
+  title           String?
+  positiveText    String?   // "Liked"
+  negativeText    String?   // "Disliked"
+  language        String?
+  isTranslated    Boolean   @default(false)
+
+  reviewerName    String?
+  reviewerCountry String?
+  travellerType   String?   // Couple / Family / Solo traveller / Group / Business
+  roomType        String?
+  propertyResponse String?
+  helpfulVotes    Int       @default(0)
+
+  sentiment   Sentiment // Derived from score bands (see shared/sentiment.ts)
+  raw         Json
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  topics ReviewTopic[]
+
+  @@unique([propertyId, externalId])
+  @@index([propertyId, reviewedAt])
+  @@index([reviewedAt])
+  @@index([sentiment])
+}
+
+enum Topic {
+  CLEANLINESS
+  CHECK_IN
+  STAFF
+  NOISE
+  FACILITIES
+  LOCATION
+  ROOM_CONDITION
+  VALUE
+  COMFORT
+  WIFI
+  OTHER
+}
+
+enum Polarity {
+  POSITIVE
+  NEGATIVE
+}
+
+enum ClassifierMethod {
+  KEYWORD
+  LLM
+}
+
+model ReviewTopic {
+  id           String           @id @default(cuid())
+  reviewId     String
+  review       Review           @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  topic        Topic
+  polarity     Polarity         // Mentioned in Liked (+) or Disliked (−) text
+  method       ClassifierMethod
+  confidence   Float            @default(1)
+  evidence     String?          // Matched phrase, shown in the UI as "why"
+  classifierVersion String
+  createdAt    DateTime         @default(now())
+
+  @@unique([reviewId, topic, polarity])
+  @@index([topic, polarity])
+}
+
+// Daily capture of Booking's headline score + category sub-scores
+model PropertySnapshot {
+  id          String   @id @default(cuid())
+  propertyId  String
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  capturedAt  DateTime @default(now())
+  overallScore Decimal? @db.Decimal(3, 1)
+  reviewCount Int?
+  subScores   Json?    // { staff: 7.9, cleanliness: 6.8, ... }
+
+  @@index([propertyId, capturedAt])
+}
+
+enum RunStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+// Audit log of every collection attempt — powers the "data freshness" indicator
+model ScrapeRun {
+  id             String    @id @default(cuid())
+  propertyId     String
+  property       Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  status         RunStatus @default(RUNNING)
+  strategy       String    // "graphql" | "dom"
+  pagesFetched   Int       @default(0)
+  reviewsSeen    Int       @default(0)
+  reviewsNew     Int       @default(0)
+  reviewsUpdated Int       @default(0)
+  errorMessage   String?
+
+  @@index([propertyId, startedAt])
+}

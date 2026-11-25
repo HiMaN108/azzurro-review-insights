@@ -1,0 +1,20 @@
+{
+  "name": "azzurro-review-insights",
+  "private": true,
+  "packageManager": "pnpm@11.22.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter web --filter api dev",
+    "dev:web": "pnpm --filter web dev",
+    "dev:api": "pnpm --filter api start:dev",
+    "build": "pnpm -r build",
+    "db:migrate": "pnpm --filter @azzurro/db migrate:dev",
+    "db:deploy": "pnpm --filter @azzurro/db migrate:deploy",
+    "db:seed": "pnpm --filter @azzurro/db seed",
+    "db:studio": "pnpm --filter @azzurro/db studio",
+    "scrape": "pnpm --filter api scrape",
+    "classify": "pnpm --filter api classify",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  }
+}
