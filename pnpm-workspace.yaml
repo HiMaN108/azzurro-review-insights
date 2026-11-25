@@ -8,3 +8,4 @@ allowBuilds:
   prisma: true
   "@nestjs/core": true
   esbuild: true
+  '@azzurro/db@file:packages/db': set this to true or false

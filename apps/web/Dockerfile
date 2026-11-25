@@ -3,7 +3,7 @@
 # Runtime env: API_URL = the API's public URL (read server-side, no rebuild needed).
 FROM node:22-slim AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH NEXT_TELEMETRY_DISABLED=1
-RUN corepack enable
+RUN npm install -g pnpm@11.22.0
 WORKDIR /app
 
 FROM base AS build
