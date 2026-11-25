@@ -26,6 +26,7 @@ dashboard that non-technical operations staff can use to answer three questions 
 - [How reviews are collected](#how-reviews-are-collected)
 - [Data quality controls](#data-quality-controls)
 - [How insights are produced](#how-insights-are-produced)
+- [AI tagging (optional, free tier)](#ai-tagging-optional-free-tier)
 - [Dashboard](#dashboard)
 - [API reference](#api-reference)
 - [Deployment](#deployment)
@@ -70,6 +71,9 @@ No data handy? Load the bundled sample instead of scraping — see [Sample data]
 | `SCRAPE_MAX_PAGES_FULL` | `400` | Cap for `--full` backfills |
 | `SCRAPE_DELAY_MS_MIN` / `_MAX` | `2500` / `6000` | Random polite delay between requests |
 | `ADMIN_TOKEN` | — | Required for `POST /collector/run`. Unset = endpoint disabled |
+| `LLM_API_KEY` | — | Turns on AI tagging (see [AI tagging](#ai-tagging-optional-free-tier)). Empty = keyword rules only |
+| `LLM_BASE_URL` / `LLM_MODEL` | Groq / `openai/gpt-oss-120b` | Any OpenAI-compatible endpoint and model |
+| `LLM_BATCH_SIZE` / `LLM_TOKENS_PER_MINUTE` / `LLM_MAX_REVIEWS_PER_RUN` | `8` / `6000` / `500` | Free-tier pacing |
 | `API_URL` (web) | `http://localhost:4000` | Where the dashboard's server components reach the API |
 
 ---
@@ -256,6 +260,48 @@ empty complaints, variants and false-positive guards (`pnpm --filter api test`).
 
 ---
 
+## AI tagging (optional, free tier)
+
+Keyword rules are free and transparent but literal: they miss sarcasm, unusual phrasing and most
+non-English reviews. When `LLM_API_KEY` is set, an AI model re-reads reviews and replaces their
+keyword tags with richer ones, and flags reviews that **need a manager's attention** (safety,
+pests, theft, injury, harassment, legal/refund threats). These appear in a "Needs attention" panel
+on the Overview and a filter on the review feed.
+
+**Free setup:** Groq has a free tier (its docs only mention a payment method for upgrading to the paid tier). Create a key at [console.groq.com](https://console.groq.com) → API Keys,
+put it in `.env` as `LLM_API_KEY`, then:
+
+```bash
+pnpm classify -- --ai --limit 20     # try a small batch first
+pnpm classify -- --ai                # up to LLM_MAX_REVIEWS_PER_RUN, newest first
+```
+
+After that the daily collection runs it automatically on new reviews.
+
+**Design for free tiers and reliability**
+
+- **Provider-neutral:** any OpenAI-compatible chat endpoint (Groq, OpenRouter, a local Ollama
+  `http://localhost:11434/v1`, OpenAI, …) — switch with `LLM_BASE_URL` / `LLM_MODEL`.
+- **Structured output:** strict JSON schema (topics restricted to the taxonomy enum), then
+  validated again in code — unknown ids/topics/polarities are dropped.
+- **No invented quotes:** each evidence quote must appear verbatim in the review; otherwise it is
+  discarded and the tag's confidence lowered.
+- **Budget pacing:** paces requests by tokens actually used (`LLM_TOKENS_PER_MINUTE`), retries
+  short rate limits, and stops cleanly when the daily quota is exhausted — remaining reviews are
+  done on the next run. Newest reviews first, so the current week is covered on day one; on Groq's
+  free tier (~200K tokens/day) the full 3-year history backfills over roughly two to three weeks.
+- **Fallback:** if the AI is off, failing or out of quota, keyword tags are used. Each review shows
+  whether it was "AI-tagged" or "keyword-tagged"; Issues & praise shows the AI coverage for the period.
+- Edited reviews are re-queued for AI tagging automatically.
+- Unit tests cover prompt building, output validation, quote verification and HTTP error handling
+  (no network needed). The pipeline was verified end-to-end against a local mock server; it has
+  not yet been run against a live provider key.
+
+Note: free tiers may use prompts to improve the provider's models (Google's Gemini free tier says so
+explicitly). Reviews are public data, so this is acceptable here; use a paid tier for private data.
+
+---
+
 ## Dashboard
 
 Three pages, each with a single row of filters (hotels, period) that persist in the URL:
@@ -330,9 +376,10 @@ GitHub Actions job against the hosted database.
 - **3-year window.** Booking's review list only goes back ~36 months, so history before that cannot
   be collected. Booking's headline review count can differ from the listable count.
 - **Partial-list variant.** See data-quality table — detected and flagged, not fully explained.
-- **Keyword classification** is English-centric and literal: it misses unusual phrasing and
-  sarcasm, and non-English reviews (~10 %) are mostly untagged. An LLM classifier could be added
-  behind the same `ReviewTopic` table (method `LLM`) without changing the dashboard.
+- **Keyword classification** (the default) is English-centric and literal: it misses unusual
+  phrasing and sarcasm, and non-English reviews (~10 %) are mostly untagged. Optional AI tagging
+  addresses this but on a free tier covers ~500 reviews/day, so older history stays keyword-tagged
+  until the backfill completes. AI tags can still be wrong; quotes are verified, judgements are not.
 - **Small weekly samples.** The four hotels receive ~25 reviews/week combined, so per-hotel weekly
   averages often rest on 1–4 reviews; the UI flags these and offers monthly trends.
 - **Reply rate lags** because hotels reply days after a review; recent weeks fill in over time.

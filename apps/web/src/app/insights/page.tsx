@@ -134,12 +134,14 @@ async function InsightsContent({ searchParams }: { searchParams: Promise<SearchP
         <div className="space-y-2 text-sm text-ink-2">
           <p>{data.methodology}</p>
           <p>
-            Booking.com asks guests what they liked and disliked separately, so we know whether a topic was a complaint or praise without guessing. Each topic has a list of
-            keywords (for example <em>dirty, stain, smell, cockroach</em> for cleanliness). The “Recent examples” column shows the exact sentence that matched.
+            Booking.com asks guests what they liked and disliked separately. <strong className="text-ink">AI tagging</strong> (when switched on) reads each review in any
+            language, decides which topics are complaints or praise, and copies the exact words as proof — quotes are checked against the review before they are shown.
+            Reviews not yet read by the AI use <strong className="text-ink">keyword rules</strong> (for example <em>dirty, stain, smell, cockroach</em> for cleanliness).
+            Each review in “Read reviews” shows which method tagged it.
           </p>
           <p>
-            <strong className="text-ink">Limitations:</strong> keyword matching can miss unusual wording, sarcasm or non-English reviews, and occasionally tags a sentence that
-            mentions a word in another context. Percentages based on fewer than ~10 reviews should be treated as a signal to read the reviews, not a conclusion.
+            <strong className="text-ink">Limitations:</strong> keyword matching misses unusual wording, sarcasm and most non-English reviews; AI tagging is more accurate
+            but can still misjudge. Percentages based on fewer than ~10 reviews should be treated as a signal to read the reviews, not a conclusion.
           </p>
         </div>
       </Card>

@@ -27,6 +27,7 @@ export class ReviewsService {
       ...(range ? { reviewedAt: rangeToUtc(range) } : {}),
       ...(q.properties?.length ? { property: { slug: { in: q.properties } } } : {}),
       ...(q.sentiment ? { sentiment: q.sentiment } : {}),
+      ...(q.urgent ? { urgent: true } : {}),
       ...(q.hasResponse === undefined ? {} : { propertyResponse: q.hasResponse ? { not: null } : null }),
       ...(q.topic ? { topics: { some: { topic: q.topic as Prisma.ReviewTopicWhereInput['topic'], ...(q.polarity ? { polarity: q.polarity } : {}) } } } : {}),
       ...(q.q?.trim()
@@ -61,8 +62,11 @@ export class ReviewsService {
           checkinDate: true,
           stayMonth: true,
           propertyResponse: true,
+          urgent: true,
+          urgentReason: true,
+          classifierVersion: true,
           property: { select: { slug: true, name: true } },
-          topics: { select: { topic: true, polarity: true, evidence: true }, orderBy: { topic: 'asc' } },
+          topics: { select: { topic: true, polarity: true, evidence: true, method: true }, orderBy: { topic: 'asc' } },
         },
       }),
     ]);

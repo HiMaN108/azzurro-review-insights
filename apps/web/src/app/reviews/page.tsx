@@ -45,6 +45,7 @@ async function Feed({ searchParams }: { searchParams: Promise<SearchParams> }) {
       polarity: first(sp.polarity),
       q: first(sp.q),
       sort: first(sp.sort),
+      urgent: first(sp.urgent) === "true" ? "true" : undefined,
       page,
       pageSize: 20,
     });

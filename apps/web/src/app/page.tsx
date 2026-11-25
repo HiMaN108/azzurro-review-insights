@@ -40,17 +40,18 @@ async function Overview({ searchParams }: { searchParams: Promise<SearchParams> 
 
   let data;
   try {
-    const [overview, insights, trends, perProperty] = await Promise.all([
+    const [overview, insights, trends, perProperty, urgent] = await Promise.all([
       api.overview({ week: week.from, properties }),
       api.insights({ ...week, properties }),
       api.trends({ from: trendFrom, to: week.to, granularity, properties }),
       Promise.all(slugs.map((s) => api.insights({ ...week, properties: [s] }).then((r) => [s, r] as const))),
+      api.reviews({ urgent: "true", from: addDays(today, -13), to: today, properties: properties.join(",") || undefined, pageSize: 5 }),
     ]);
-    data = { overview, insights, trends, perProperty };
+    data = { overview, insights, trends, perProperty, urgent };
   } catch (e) {
     return <ErrorState message={e instanceof ApiError ? e.message : "Unexpected error loading the dashboard."} />;
   }
-  const { overview, insights, trends, perProperty } = data;
+  const { overview, insights, trends, perProperty, urgent } = data;
   const cur = overview.portfolio.current;
   const prev = overview.portfolio.previous;
   const isThisWeek = week.from === weekRange(today).from;
@@ -146,6 +147,32 @@ async function Overview({ searchParams }: { searchParams: Promise<SearchParams> 
           <TopicBars topics={insights.topics} total={insights.totals.reviews} reviewsHref={reviewsHref} limit={5} />
         </Card>
       </div>
+
+      {urgent.total > 0 && (
+        <Card
+          title="Needs attention"
+          subtitle="Reviews from the last 14 days that the AI flagged for a manager (safety, pests, theft, injury, legal or refund threats)"
+          action={
+            <Link href={hrefWith("/reviews", { p: first(sp.p) }, { urgent: "true" })} className="text-sm font-medium text-accent-ink hover:underline">
+              See all {urgent.total} →
+            </Link>
+          }
+        >
+          <ul className="divide-y divide-line">
+            {urgent.items.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2 text-sm">
+                <span className="text-critical-ink">
+                  <span aria-hidden>⚠ </span>
+                  {r.urgentReason ?? "Flagged as urgent"}
+                </span>
+                <span className="text-xs text-ink-3">
+                  {r.property.name} · {r.score.toFixed(1)} · {new Date(r.reviewedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", timeZone: "Australia/Sydney" })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <Card title="Hotel by hotel" subtitle="Average guest score this week vs last week (number of reviews in brackets)">
         <PropertyTable overview={overview} topIssue={topIssue} />

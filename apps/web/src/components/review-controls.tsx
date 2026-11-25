@@ -64,6 +64,15 @@ export function ReviewControls() {
           </button>
         </div>
       </form>
+      <label className="flex h-9 items-center gap-2 self-end text-sm text-ink-2">
+        <input
+          type="checkbox"
+          checked={sp.get("urgent") === "true"}
+          onChange={(e) => update({ urgent: e.target.checked ? "true" : null })}
+          className="size-4 accent-[var(--accent)]"
+        />
+        Needs attention only
+      </label>
       <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
         Sort
         <select value={sp.get("sort") ?? "newest"} onChange={(e) => update({ sort: e.target.value === "newest" ? null : e.target.value })} className={field}>

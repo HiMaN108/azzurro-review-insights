@@ -16,14 +16,16 @@ export class ClassifierService {
    */
   async classifyPending({ reclassifyAll = false } = {}): Promise<{ reviews: number; topics: number }> {
     const db = this.prisma.client;
+    // Reviews tagged by the AI classifier are left alone (their tags are richer).
+    const notAi = { aiCheckedAt: null };
     if (reclassifyAll) {
-      await db.$transaction([db.reviewTopic.deleteMany({ where: { method: 'KEYWORD' } }), db.review.updateMany({ data: { classifiedAt: null } })]);
+      await db.$transaction([db.reviewTopic.deleteMany({ where: { method: 'KEYWORD' } }), db.review.updateMany({ where: notAi, data: { classifiedAt: null } })]);
     }
     let reviews = 0;
     let topics = 0;
     for (;;) {
       const batch = await db.review.findMany({
-        where: { OR: [{ classifiedAt: null }, { classifierVersion: { not: KEYWORD_CLASSIFIER_VERSION } }] },
+        where: { ...notAi, OR: [{ classifiedAt: null }, { classifierVersion: { not: KEYWORD_CLASSIFIER_VERSION } }] },
         select: { id: true, title: true, positiveText: true, negativeText: true },
         take: BATCH,
       });

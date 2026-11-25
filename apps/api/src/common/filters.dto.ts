@@ -34,6 +34,8 @@ export class ReviewsQueryDto extends RangeFilterDto {
   @IsOptional() @IsIn(SORTS) sort?: (typeof SORTS)[number];
   @IsOptional() @Transform(({ value }) => (value === undefined ? undefined : value === 'true'))
   hasResponse?: boolean;
+  @IsOptional() @Transform(({ value }) => (value === undefined ? undefined : value === 'true'))
+  urgent?: boolean;
   @IsOptional() @Transform(({ value }) => Number(value)) @IsInt() @Min(1) page?: number;
   @IsOptional() @Transform(({ value }) => Number(value)) @IsInt() @Min(1) @Max(100) pageSize?: number;
 }

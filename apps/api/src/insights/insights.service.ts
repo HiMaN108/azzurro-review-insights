@@ -11,6 +11,8 @@ interface Totals {
   reviews: number;
   negativeReviews: number;
   positiveReviews: number;
+  aiTagged: number; // reviews tagged by the AI classifier (rest use keyword rules)
+  urgent: number;
 }
 interface TopicCounts {
   complaints: number; // reviews with a NEGATIVE mention
@@ -60,16 +62,20 @@ export class InsightsService {
       topics,
       headlines: headlines(range, cur.totals, topics),
       methodology:
-        'Topics are detected with keyword rules per sentence. A mention in the guest\'s "Disliked" text counts as a complaint, in the "Liked" text as praise. Negative reviews = score below 6/10.',
+        cur.totals.aiTagged > 0
+          ? `${Math.round((cur.totals.aiTagged / Math.max(1, cur.totals.reviews)) * 100)}% of reviews in this period were tagged by an AI model that reads each review in any language; the rest use keyword rules. Negative reviews = score below 6/10.`
+          : 'Topics are detected with keyword rules per sentence. A mention in the guest\'s "Disliked" text counts as a complaint, in the "Liked" text as praise. Negative reviews = score below 6/10.',
     };
   }
 
   private async counts(range: DateRange, properties?: string[]) {
     const where = whereSql(range, properties);
-    const [totals] = await this.prisma.client.$queryRaw<{ n: bigint; neg: bigint; pos: bigint }[]>`
+    const [totals] = await this.prisma.client.$queryRaw<{ n: bigint; neg: bigint; pos: bigint; ai: bigint; urgent: bigint }[]>`
       SELECT count(*) AS n,
         count(*) FILTER (WHERE r.sentiment = 'NEGATIVE') AS neg,
-        count(*) FILTER (WHERE r.sentiment = 'POSITIVE') AS pos
+        count(*) FILTER (WHERE r.sentiment = 'POSITIVE') AS pos,
+        count(*) FILTER (WHERE r."aiCheckedAt" IS NOT NULL) AS ai,
+        count(*) FILTER (WHERE r.urgent) AS urgent
       FROM "Review" r JOIN "Property" p ON p.id = r."propertyId" WHERE ${where}`;
     const rows = await this.prisma.client.$queryRaw<{ topic: string; complaints: bigint; complaints_neg: bigint; praise: bigint }[]>`
       SELECT t.topic::text AS topic,
@@ -81,7 +87,7 @@ export class InsightsService {
       WHERE ${where}
       GROUP BY 1`;
     return {
-      totals: { reviews: num(totals?.n), negativeReviews: num(totals?.neg), positiveReviews: num(totals?.pos) } satisfies Totals,
+      totals: { reviews: num(totals?.n), negativeReviews: num(totals?.neg), positiveReviews: num(totals?.pos), aiTagged: num(totals?.ai), urgent: num(totals?.urgent) } satisfies Totals,
       topics: new Map<string, TopicCounts>(rows.map((r) => [r.topic, { complaints: num(r.complaints), complaintsInNegative: num(r.complaints_neg), praise: num(r.praise) }])),
     };
   }

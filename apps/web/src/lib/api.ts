@@ -76,8 +76,8 @@ export interface TopicInsight {
 export interface Insights {
   range: { from: string; to: string };
   previousRange: { from: string; to: string };
-  totals: { reviews: number; negativeReviews: number; positiveReviews: number };
-  previousTotals: { reviews: number; negativeReviews: number; positiveReviews: number };
+  totals: { reviews: number; negativeReviews: number; positiveReviews: number; aiTagged: number; urgent: number };
+  previousTotals: { reviews: number; negativeReviews: number; positiveReviews: number; aiTagged: number; urgent: number };
   topics: TopicInsight[];
   headlines: string[];
   methodology: string;
@@ -100,8 +100,11 @@ export interface Review {
   checkinDate: string | null;
   stayMonth: string | null;
   propertyResponse: string | null;
+  urgent: boolean;
+  urgentReason: string | null;
+  classifierVersion: string | null;
   property: { slug: string; name: string };
-  topics: { topic: string; polarity: "POSITIVE" | "NEGATIVE"; evidence: string | null }[];
+  topics: { topic: string; polarity: "POSITIVE" | "NEGATIVE"; evidence: string | null; method: "KEYWORD" | "LLM" }[];
 }
 export interface ReviewPage {
   page: number;

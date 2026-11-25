@@ -70,7 +70,12 @@ model Review {
 
   topics ReviewTopic[]
   classifiedAt      DateTime? // null = needs (re)classification
-  classifierVersion String?
+  classifierVersion String?   // "kw-2" (keywords) or "llm-1:<model>" (AI)
+
+  // AI triage (set only when the AI classifier has processed the review)
+  urgent        Boolean   @default(false) // safety, pests, theft, injury, discrimination, refund/legal threat
+  urgentReason  String?
+  aiCheckedAt   DateTime?
 
   @@unique([propertyId, externalId])
   @@index([propertyId, contentHash])
@@ -78,6 +83,8 @@ model Review {
   @@index([reviewedAt])
   @@index([sentiment])
   @@index([classifiedAt])
+  @@index([aiCheckedAt])
+  @@index([urgent, reviewedAt])
 }
 
 enum Topic {

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { chromium, type Browser } from 'playwright';
 import type { Property } from '@azzurro/db';
+import { AiClassifierService } from '../classifier/ai-classifier.service.js';
 import { ClassifierService } from '../classifier/classifier.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { BookingSession } from './booking-session.js';
@@ -56,6 +57,7 @@ export class CollectorService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly classifier: ClassifierService,
+    private readonly aiClassifier: AiClassifierService,
   ) {}
 
   get isRunning() {
@@ -83,6 +85,8 @@ export class CollectorService {
         if (i < properties.length - 1) await this.delay();
       }
       await this.classifier.classifyPending().catch((e) => this.log.error(`Classification failed: ${errorMessage(e)}`));
+      // Optional AI pass (no-op without LLM_API_KEY). Failures never fail the collection run.
+      if (this.aiClassifier.enabled) await this.aiClassifier.run().catch((e) => this.log.error(`AI classification failed: ${errorMessage(e)}`));
     } finally {
       await browser.close().catch(() => {});
       this.running = false;
@@ -243,7 +247,7 @@ export class CollectorService {
           continue;
         }
         await db.$transaction([
-          db.review.update({ where: { id: match.id }, data: { ...row, lastSeenAt: now, ...(edited ? { classifiedAt: null } : {}) } }),
+          db.review.update({ where: { id: match.id }, data: { ...row, lastSeenAt: now, ...(edited ? { classifiedAt: null, aiCheckedAt: null, urgent: false, urgentReason: null } : {}) } }),
           ...(edited ? [db.reviewTopic.deleteMany({ where: { reviewId: match.id } })] : []),
         ]);
         updated++;

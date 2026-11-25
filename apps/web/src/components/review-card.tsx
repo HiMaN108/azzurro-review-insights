@@ -30,7 +30,15 @@ function ScoreBadge({ score, sentiment }: { score: number; sentiment: Review["se
 export function ReviewCard({ r }: { r: Review }) {
   const stay = [r.roomType, r.nights ? `${r.nights} night${r.nights > 1 ? "s" : ""}` : null, r.travellerType].filter(Boolean).join(" · ");
   return (
-    <article className="rounded-xl border border-line bg-surface p-4 sm:p-5">
+    <article className={`rounded-xl border bg-surface p-4 sm:p-5 ${r.urgent ? "border-[var(--neg)]" : "border-line"}`}>
+      {r.urgent && (
+        <p className="mb-3 flex items-start gap-2 rounded-lg bg-surface-2 px-3 py-2 text-sm font-medium text-critical-ink">
+          <span aria-hidden>⚠</span>
+          <span>
+            Needs attention{r.urgentReason ? `: ${r.urgentReason}` : ""}
+          </span>
+        </p>
+      )}
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-xs font-medium text-ink-2">
@@ -62,7 +70,7 @@ export function ReviewCard({ r }: { r: Review }) {
       </div>
 
       {r.topics.length > 0 && (
-        <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Topics mentioned">
+        <ul className="mt-3 flex flex-wrap items-center gap-1.5" aria-label="Topics mentioned">
           {r.topics.map((t) => (
             <li
               key={`${t.topic}-${t.polarity}`}
@@ -73,6 +81,9 @@ export function ReviewCard({ r }: { r: Review }) {
               {TOPIC_LABEL[t.topic] ?? t.topic}
             </li>
           ))}
+          <li className="text-xs text-ink-3" title={r.classifierVersion?.startsWith("llm") ? "Topics tagged by an AI model" : "Topics tagged by keyword rules"}>
+            · {r.classifierVersion?.startsWith("llm") ? "AI-tagged" : "keyword-tagged"}
+          </li>
         </ul>
       )}
 
