@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import Link from "next/link";
 import { Suspense } from "react";
 import { NavLinks } from "@/components/nav-links";
+import { THEME_INIT_SCRIPT, ThemeToggle } from "@/components/theme-toggle";
 import "./globals.css";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
@@ -14,7 +15,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en-AU" className={`${inter.variable} h-full antialiased`}>
+    // suppressHydrationWarning: data-theme is set by THEME_INIT_SCRIPT before React hydrates.
+    <html lang="en-AU" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-full">
         <header className="border-b border-line bg-surface">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-3">
@@ -27,9 +32,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 <span className="block text-xs text-ink-3">Guest review insights · Booking.com</span>
               </span>
             </Link>
-            <Suspense fallback={<div className="h-9" />}>
-              <NavLinks />
-            </Suspense>
+            <div className="flex flex-wrap items-center gap-3">
+              <Suspense fallback={<div className="h-9" />}>
+                <NavLinks />
+              </Suspense>
+              <ThemeToggle />
+            </div>
           </div>
         </header>
         <main className="mx-auto max-w-7xl space-y-5 px-4 py-5">{children}</main>

@@ -273,8 +273,8 @@ Three pages, each with a single row of filters (hotels, period) that persist in 
   hover, hotel reply expandable.
 
 Design notes: status colours (better/worse) always come with an arrow and a word; each hotel keeps
-the same colour everywhere; every chart has hover tooltips and a "Show as table" view; light and dark
-mode; works at phone width; loading skeletons and friendly error states when the API is unreachable.
+the same colour everywhere; every chart has hover tooltips and a "Show as table" view; a header switch offers
+Auto (follow device) / Light / Dark themes, remembered per browser; works at phone width; loading skeletons and friendly error states when the API is unreachable.
 
 ---
 
