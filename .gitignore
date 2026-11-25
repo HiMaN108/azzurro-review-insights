@@ -12,3 +12,4 @@ coverage/
 apps/api/.debug/
 packages/db/src/generated/
 *.tsbuildinfo
+.neon
